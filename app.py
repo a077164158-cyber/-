@@ -54,6 +54,17 @@ def init_db():
                     quiz_data TEXT
                 )''')
                 
+    # 🔄 【Bug 修正核心 - 1】: 動態檢查 vocab 資料表是否缺少新擴充的欄位，若缺少則自動補上
+    vocab_columns = ["next_review_date", "streak", "error_count", "quiz_data"]
+    for col in vocab_columns:
+        try:
+            if col in ["streak", "error_count"]:
+                c.execute(f"ALTER TABLE vocab ADD COLUMN {col} INTEGER DEFAULT 0")
+            else:
+                c.execute(f"ALTER TABLE vocab ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass  # 欄位已存在，跳過
+                
     # 2. 用戶管理表（用於模擬後台與點數管理）
     c.execute('''CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
@@ -62,7 +73,7 @@ def init_db():
                     credits INTEGER DEFAULT 10
                 )''')
                 
-    # 🔄 【Bug 修正核心】：動態檢查舊資料表是否缺少新擴充的欄位，若缺少則自動補上
+    # 🔄 【Bug 修正核心 - 2】：動態檢查 users 資料表是否缺少新擴充的欄位，若缺少則自動補上
     try:
         c.execute("ALTER TABLE users ADD COLUMN password TEXT")
     except sqlite3.OperationalError:
@@ -376,7 +387,7 @@ with main_tabs[1]:
                 col1, col2, col3 = st.columns([2, 5, 2])
                 with col1:
                     st.subheader(f"🔤 {w_word}")
-                    st.caption(f"📅 下次複習: {w_date} | 🔥 記憶鏈: {w_streak} | ❌ 錯誤次數: {w_err}")
+                    st.caption(f"📅 下期複習: {w_date} | 🔥 記憶鏈: {w_streak} | ❌ 錯誤次數: {w_err}")
                     tts_button(w_word, label="🔊 聽發音")
                 with col2:
                     st.markdown(f"**核心釋義：** {w_def}")
@@ -453,160 +464,4 @@ with main_tabs[2]:
             st.warning(f"💡 **文法線索：** {q_data.get('grammar_hint', '請注意詞性變化')}")
             st.info(f"📋 **題目句子：**\n{q_data.get('grammar_q', '_______')}")
             ans_3 = st.text_input(f"請根據文法結構，手動輸入單字「{selected_quiz_word}」的正確衍生詞性形或時態變化型：", key=f"q3_{selected_quiz_word}").strip()
-            if st.button("驗證文法結構", key=f"btn3_{selected_quiz_word}"):
-                if ans_3.lower() == q_data.get("grammar_ans", "").strip().lower():
-                    st.success(f"🎯 太強了！手動填充完全正確！答案正是：{q_data.get('grammar_ans')}")
-                else:
-                    st.error(f"❌ 殘念！手動拼寫結構不對。正確衍生型態應為：【 {q_data.get('grammar_ans')} 】")
-                    
-        with t4:
-            st.markdown("#### 🎬 階段四：脈絡邏輯串接 - 完整短文情境克漏字")
-            st.info(f"📖 **情境克漏字短文：**\n{q_data.get('cloze_q', '[  ]')}")
-            ans_4 = st.radio("請選出最符合文意填入 [  ] 的黃金字彙：", q_data.get("cloze_options", []), key=f"q4_{selected_quiz_word}")
-            if st.button("驗證短文克漏字", key=f"btn4_{selected_quiz_word}"):
-                if ans_4 == q_data.get("cloze_ans"):
-                    st.success("🎯 恭喜！克漏字完全答對，您已成功掌握該單字的情境脈絡！")
-                else:
-                    st.error(f"❌ 答錯囉，短文內要填入的應該是本字【 {q_data.get('cloze_ans')} 】。")
-                    
-        with t5:
-            st.markdown("#### 🎧 階段五：極限大腦盲聽 - 語音聽寫特訓題")
-            st.write("點擊下方綠色按鈕聆聽官方大腦語音，請僅憑耳朵聽力拼出聽到的單字！")
-            tts_button(selected_quiz_word, label="🔊 播放盲聽特訓語音")
-            ans_5 = st.text_input("聽寫輸入框：請拼出您剛剛聽到的發音字彙：", key=f"q5_{selected_quiz_word}").strip().lower()
-            if st.button("驗證聽寫答案", key=f"btn5_{selected_quiz_word}"):
-                if ans_5 == selected_quiz_word:
-                    st.success("🎯 音感與拼寫完美契合！盲聽聽寫完全正確！")
-                else:
-                    st.error("❌ 音頻拼寫不吻合，請再點擊一次播放按鈕仔細聆聽發音. ")
-                    
-        with t6:
-            st.markdown("#### 🔗 階段六：高階語感重塑 - 國際檢定級整句單字重組題")
-            raw_sentence = q_data.get("scrambled_sentence", "")
-            translation = q_data.get("scrambled_translation", "")
-            st.markdown(f"**🎯 句子中文翻譯目標：**\n*{translation}*")
-            
-            state_key_order = f"order_{selected_quiz_word}"
-            if state_key_order not in st.session_state:
-                words_list = raw_sentence.split()
-                random.shuffle(words_list)
-                st.session_state[state_key_order] = words_list
-                st.session_state[f"user_seq_{selected_quiz_word}"] = []
-                
-            st.write("📦 可使用的單字元件磁鐵：")
-            user_reorder_seq = st.multiselect(
-                "請『依序』點選單字磁鐵來組成正確的整句英文例句：", 
-                options=list(set(raw_sentence.split())), 
-                key=f"mselect_{selected_quiz_word}"
-            )
-            if st.button("提交整句重組判斷", key=f"btn6_{selected_quiz_word}"):
-                user_sentence_str = " ".join(user_reorder_seq).strip().lower().replace(".", "").replace(",", "")
-                correct_sentence_str = raw_sentence.strip().lower().replace(".", "").replace(",", "")
-                if user_sentence_str == correct_sentence_str:
-                    st.success(f"🎯 太驚人了！整句結構建構成功！\n正確句子：{raw_sentence}")
-                else:
-                    st.error(f"❌ 結構順序有誤。")
-                    st.markdown(f"👉 **官方權威正確解答句架構為：**\n`{raw_sentence}`")
-
-# ------------------------------------------
-# 👑 新增核心管理員後台功能 (只有您的帳號可見)
-# ------------------------------------------
-if is_admin:
-    with main_tabs[3]:
-        st.header("👑 系統核心管理員控制台")
-        st.write("歡迎總管理員回來。此處提供最高調度權限，可直接檢視核心資料庫並手動調整用戶狀態。")
-        
-        # 讀取目前全系統所有註冊者資料
-        def load_all_users():
-            conn = sqlite3.connect('anki_vocab.db')
-            c = conn.cursor()
-            c.execute("SELECT id, email, password, credits FROM users WHERE id != 'admin_root' ORDER BY rowid DESC")
-            rows = c.fetchall()
-            conn.close()
-            return rows
-
-        users_list = load_all_users()
-        
-        # 分類面版
-        adm_tab1, adm_tab2, adm_tab3 = st.tabs(["📊 用戶數據名冊", "🔑 忘記密碼・重設中心", "💰 儲值/管理點數中心"])
-        
-        # 管理面板 1: 數據名冊
-        with adm_tab1:
-            st.subheader(f"👥 目前加入系統的正式用戶（共計 {len(users_list)} 人）")
-            if not users_list:
-                st.info("目前尚無其他正式註冊會員。")
-            else:
-                # 建立表格
-                import pandas as pd
-                df = pd.DataFrame(users_list, columns=["用戶內部識別碼 ID", "註冊電子郵件 (Email)", "用戶密碼 (明碼)", "剩餘點數"])
-                st.dataframe(df, use_container_width=True)
-                
-                # 快速全體增加福利點數功能
-                st.markdown("---")
-                st.markdown("#### ⚡ 系統全體廣播發放點數補貼")
-                bonus_amt = st.number_input("請輸入要送給『全體用戶』的福利點數：", min_value=1, max_value=100, value=10)
-                if st.button("確認全體一鍵分發"):
-                    conn = sqlite3.connect('anki_vocab.db')
-                    c = conn.cursor()
-                    c.execute("UPDATE users SET credits = credits + ? WHERE id != 'admin_root'", (bonus_amt,))
-                    conn.commit()
-                    conn.close()
-                    st.success(f"🚀 已成功為全體用戶儲值額外 {bonus_amt} 點數福利！")
-                    time.sleep(1)
-                    st.rerun()
-
-        # 管理面板 2: 忘記密碼更改
-        with adm_tab2:
-            st.subheader("🔑 忘記密碼維護通道")
-            st.write("如果用戶忘記密碼，請在下方選擇他們的 Email 並直接輸入新密碼覆蓋。")
-            
-            if not users_list:
-                st.info("目前無用戶可供修改。")
-            else:
-                user_emails = [u[1] for u in users_list]
-                selected_user_email = st.selectbox("請選擇需要協助重設密碼的用戶 Email：", user_emails, key="pwd_select_user")
-                new_assigned_pwd = st.text_input("請輸入要幫他設定的【新密碼】", type="default", help="可以直接輸入明碼供用戶抄寫")
-                
-                if st.button("確認強制更新用戶密碼"):
-                    if not new_assigned_pwd.strip():
-                        st.warning("密碼不能為空。")
-                    else:
-                        conn = sqlite3.connect('anki_vocab.db')
-                        c = conn.cursor()
-                        c.execute("UPDATE users SET password=? WHERE email=?", (new_assigned_pwd.strip(), selected_user_email))
-                        conn.commit()
-                        conn.close()
-                        st.success(f"🔑 密碼更換成功！用戶 `{selected_user_email}` 的密碼已成功變更為：**{new_assigned_pwd.strip()}**")
-                        time.sleep(1)
-                        st.rerun()
-
-        # 管理面板 3: 儲值點數功能
-        with adm_tab3:
-            st.subheader("💰 用戶特訓金幣與點數儲值中心")
-            st.write("手動為指定的用戶儲值可用點數（1點可查一個單字）。")
-            
-            if not users_list:
-                st.info("目前無用戶可供儲值。")
-            else:
-                user_options_credits = {u[1]: (u[0], u[3]) for u in users_list} # email -> (id, current_credits)
-                selected_credit_email = st.selectbox("請選擇要執行儲值的用戶 Email：", list(user_options_credits.keys()), key="credit_select_user")
-                
-                target_uid, target_cre = user_options_credits[selected_credit_email]
-                st.markdown(f"該用戶目前擁有的點數為：**{target_cre}** 點")
-                
-                deposit_mode = st.radio("請選擇操作類型：", ["➕ 儲值增加點數", "➖ 手動扣除點數"])
-                change_amount = st.number_input("請輸入調整點數數量：", min_value=1, max_value=5000, value=50)
-                
-                if st.button("執行點數調度更新"):
-                    conn = sqlite3.connect('anki_vocab.db')
-                    c = conn.cursor()
-                    if deposit_mode == "➕ 儲值增加點數":
-                        c.execute("UPDATE users SET credits = credits + ? WHERE id=?", (change_amount, target_uid))
-                        st.success(f"💰 儲值成功！已幫 `{selected_credit_email}` 增加 {change_amount} 點！")
-                    else:
-                        c.execute("UPDATE users SET credits = max(0, credits - ?) WHERE id=?", (change_amount, target_uid))
-                        st.success(f"⚠️ 扣除成功！已從 `{selected_credit_email}` 扣除 {change_amount} 點！")
-                    conn.commit()
-                    conn.close()
-                    time.sleep(1)
-                    st.rerun()
+            if st.button("驗證文法結構", key=f"btn3_{selected_quiz_
