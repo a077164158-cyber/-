@@ -13,7 +13,7 @@ from google.genai import types
 st.set_page_config(page_title="EchoBrain SRS 核心系統", layout="wide", initial_sidebar_state="expanded")
 
 # 🌟 管理員公用 API 金鑰設定（請在此處填入您的真實金鑰）
-BACKEND_GEMINI_KEY = "你的_GEMINI_API_KEY_請在此處替換"
+BACKEND_GEMINI_KEY = "AQ.Ab8RN6Lauqruyzzq71MnPmyU5rWY2ruoZWKzN-ETUvjvgyVggA"
 
 # 👑 指定管理員帳密配置
 ADMIN_EMAIL = "a23623020428@gmail.com"
