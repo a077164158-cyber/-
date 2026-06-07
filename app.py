@@ -9,10 +9,7 @@ from supabase import create_client, Client
 
 # ==========================================
 # 1. 雲端保險箱 Secrets 讀取與安全性檢查
-# ==========================================
-if "supabase" not in st.secrets or "GEMINI_API_KEY" not in st.secrets:
-    st.error("❌ 偵測到 Streamlit Secrets 尚未設定完成，請確認 SUPABASE 與 GEMINI_API_KEY 皆已填入。")
-    st.stop()
+
 
 SUPABASE_URL = st.secrets["supabase"]["SUPABASE_URL"]
 SUPABASE_KEY = st.secrets["supabase"]["SUPABASE_KEY"]
