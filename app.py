@@ -4,6 +4,7 @@ import json
 import time
 import requests
 import random
+from datetime import datetime, timedelta
 from google import genai
 from google.genai import types
 
@@ -12,8 +13,8 @@ from google.genai import types
 # ==========================================
 st.set_page_config(page_title="EchoBrain SRS 核心系統", layout="wide", initial_sidebar_state="expanded")
 
-# 🌟 管理員公用 API 金鑰設定（⚠️ 請務必在此處替換為您的真實 Gemini 金鑰，否則會出現 401 錯誤）
-BACKEND_GEMINI_KEY = "AQ.Ab8RN6JLGmZ0AFiyE-_TwAI0kJSh82CDGuAxlXath9OYzAlE9w"
+# 🌟 管理員公用 API 金鑰設定（⚠️ 請務必在此處替換為您的真實 Gemini 金鑰）
+BACKEND_GEMINI_KEY = "AQ.Ab8RN6Lauqruyzzq71MnPmyU5rWY2ruoZWKzN-ETUvjvgyVggA"
 
 # 👑 指定管理員帳密配置
 ADMIN_EMAIL = "a23623020428@gmail.com"
@@ -33,12 +34,11 @@ if "scrambled_order" not in st.session_state:
 if "user_reorder" not in st.session_state:
     st.session_state.user_reorder = []
 
-# SQLite 局部資料庫初始化（修正資料表不一致導致的 OperationalError）
+# SQLite 局部資料庫初始化
 def init_db():
     conn = sqlite3.connect('anki_vocab.db')
     c = conn.cursor()
     
-    # 建立全新的單字主表與用戶管理表結構
     c.execute('''CREATE TABLE IF NOT EXISTS vocab (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT,
@@ -61,12 +61,10 @@ def init_db():
                     credits INTEGER DEFAULT 10
                 )''')
                 
-    # 🔄 【Bug 修正核心】：安全結構校驗驗證，防止舊環境中殘留的損壞欄位導致崩潰
+    # 安全結構校驗驗證
     try:
-        # 測試 users 表是否支援現有欄位
         c.execute("SELECT id, email, password, credits FROM users LIMIT 1")
     except sqlite3.OperationalError:
-        # 如果欄位不相符或缺少，直接重建 users 表以維持結構純淨
         c.execute("DROP TABLE IF EXISTS users")
         c.execute('''CREATE TABLE users (
                         id TEXT PRIMARY KEY,
@@ -76,10 +74,8 @@ def init_db():
                     )''')
                     
     try:
-        # 測試 vocab 表是否支援現有欄位
         c.execute("SELECT id, user_id, word, definition, grammar, mnemonic, confusable, sentences, next_review_date, streak, error_count, quiz_data FROM vocab LIMIT 1")
     except sqlite3.OperationalError:
-        # 如果欄位不相符或缺少，直接重建 vocab 表以維持結構純淨
         c.execute("DROP TABLE IF EXISTS vocab")
         c.execute('''CREATE TABLE vocab (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,7 +92,6 @@ def init_db():
                         quiz_data TEXT
                     )''')
                 
-    # 自動插入管理員帳號至本地資料庫，確保資料一致性
     c.execute("INSERT OR REPLACE INTO users (id, email, password, credits) VALUES (?, ?, ?, ?)",
               ("admin_root", ADMIN_EMAIL, ADMIN_PASSWORD, 999999))
               
@@ -123,13 +118,37 @@ def deduct_credit(user_id):
     conn.commit()
     conn.close()
 
-# Supabase 模擬串接端點（與本地 SQLite 同步，確保後台管理看得到）
+# 更新單字的 Anki 精熟度排程
+def update_anki_schedule(vocab_id, level):
+    conn = sqlite3.connect('anki_vocab.db')
+    c = conn.cursor()
+    
+    today = datetime.now()
+    if level == "forgot":
+        days_to_add = 1
+        streak_change = 0
+        err_add = 1
+        c.execute("UPDATE vocab SET next_review_date=?, streak=?, error_count=error_count+? WHERE id=?", 
+                  ((today + timedelta(days=days_to_add)).strftime("%Y-%m-%d"), streak_change, err_add, vocab_id))
+    elif level == "blur":
+        days_to_add = 3
+        c.execute("UPDATE vocab SET next_review_date=?, streak=streak+1 WHERE id=?", 
+                  ((today + timedelta(days=days_to_add)).strftime("%Y-%m-%d"), vocab_id))
+    elif level == "master":
+        days_to_add = 7
+        c.execute("UPDATE vocab SET next_review_date=?, streak=streak+2 WHERE id=?", 
+                  ((today + timedelta(days=days_to_add)).strftime("%Y-%m-%d"), vocab_id))
+        
+    conn.commit()
+    conn.close()
+
+# Supabase 模擬串接端點
 def supabase_signup(email, password):
     conn = sqlite3.connect('anki_vocab.db')
     c = conn.cursor()
     try:
         mock_id = f"user_{int(time.time())}"
-        c.execute("INSERT INTO users (id, email, password, credits) VALUES (?, ?, ?, ?)", (mock_id, email, password, 10)) # 新人送 10 點
+        c.execute("INSERT INTO users (id, email, password, credits) VALUES (?, ?, ?, ?)", (mock_id, email, password, 10))
         conn.commit()
         conn.close()
         return {"user": {"id": mock_id, "email": email}}, 200
@@ -138,7 +157,6 @@ def supabase_signup(email, password):
         return {"error": "帳號已存在"}, 400
 
 def supabase_signin(email, password):
-    # 先做管理員特判
     if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
         return {"user": {"id": "admin_root", "email": ADMIN_EMAIL}, "access_token": "admin_token"}, 200
         
@@ -231,7 +249,7 @@ def fetch_gemini_learning_package(word, api_key):
             return None
 
 # ==========================================
-# 3. 系統安全門禁中心（自動過濾前後空白）
+# 3. 系統安全門禁中心
 # ==========================================
 if not st.session_state.logged_in:
     st.title("🧠 EchoBrain SRS 系統門禁安全中心")
@@ -281,9 +299,7 @@ if not st.session_state.logged_in:
 # ==========================================
 st.sidebar.title("🧠 EchoBrain SRS")
 
-# 檢查目前登入的是否為系統最高管理員
 is_admin = (st.session_state.user_email == ADMIN_EMAIL)
-
 if is_admin:
     st.sidebar.markdown("### 👑 權限：系統最高管理員")
 else:
@@ -291,7 +307,6 @@ else:
 
 st.sidebar.write(f"📧 帳號: {st.session_state.user_email}")
 
-# 即時顯示剩餘點數
 current_credits = get_user_credits(st.session_state.user_id)
 st.sidebar.metric(label="💰 您的剩餘特訓點數", value=f"{current_credits} 點")
 
@@ -301,7 +316,6 @@ if st.sidebar.button("登出系統"):
     st.session_state.user_email = None
     st.rerun()
 
-# 根據身分決定要產生哪些 Tabs 分頁
 tabs_list = ["📥 數據匯入中心", "🗂️ 字彙記憶庫", "⚔️ 七大維度特訓魔鬼測驗"]
 if is_admin:
     tabs_list.append("⚙️ 👑 核心管理員後台")
@@ -309,7 +323,7 @@ if is_admin:
 main_tabs = st.tabs(tabs_list)
 
 # ------------------------------------------
-# 分頁 1: 數據匯入中心 (導入點數扣除機制)
+# 分頁 1: 數據匯入中心
 # ------------------------------------------
 with main_tabs[0]:
     st.header("📥 AI 數據打包匯入中心")
@@ -328,55 +342,59 @@ with main_tabs[0]:
             with st.spinner("Gemini AI 正在全維度解構字彙、編寫魔鬼測驗題型..."):
                 pkg = fetch_gemini_learning_package(input_word, BACKEND_GEMINI_KEY)
                 if pkg:
-                    # 扣除點數 (管理員免扣除或照扣，這裡設計一般用戶扣點)
                     if not is_admin:
                         deduct_credit(st.session_state.user_id)
                     
-                    # 存入本機 SQLite 資料庫
                     conn = sqlite3.connect('anki_vocab.db')
                     c = conn.cursor()
-                    # 檢查是否已存在
                     c.execute("SELECT id FROM vocab WHERE user_id=? AND word=?", (st.session_state.user_id, input_word.strip().lower()))
                     exist = c.fetchone()
                     
                     quiz_data_str = json.dumps(pkg, ensure_ascii=False)
-                    today_str = time.strftime("%Y-%m-%d")
+                    today_str = datetime.now().strftime("%Y-%m-%d")
                     
                     if exist:
                         c.execute("""UPDATE vocab SET definition=?, grammar=?, mnemonic=?, confusable=?, sentences=?, next_review_date=?, quiz_data=? 
                                      WHERE id=?""", 
                                   (pkg['definition'], pkg['grammar'], pkg['mnemonic'], pkg['confusable'], pkg['sentences'], today_str, quiz_data_str, exist[0]))
-                        st.success(f"♻️ 單字「{input_word}」已存在，AI 測驗題型數據已更新！(已扣除 1 點，剩餘 {get_user_credits(st.session_state.user_id)} 點)")
+                        st.success(f"♻️ 單字「{input_word}」已存在，AI 測驗題型數據已更新！")
                     else:
                         c.execute("""INSERT INTO vocab (user_id, word, definition, grammar, mnemonic, confusable, sentences, next_review_date, streak, error_count, quiz_data) 
                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)""",
                                   (st.session_state.user_id, input_word.strip().lower(), pkg['definition'], pkg['grammar'], pkg['mnemonic'], pkg['confusable'], pkg['sentences'], today_str, quiz_data_str))
-                        st.success(f"🎉 成功！單字「{input_word}」已成功匯入記憶庫！(已扣除 1 點，剩餘 {get_user_credits(st.session_state.user_id)} 點)")
+                        st.success(f"🎉 成功！單字「{input_word}」已成功匯入記憶庫！")
                     conn.commit()
                     conn.close()
                     time.sleep(1)
                     st.rerun()
 
 # ------------------------------------------
-# 分頁 2: 字彙記憶庫
+# 分頁 2: 字彙記憶庫 (升級：排程篩選、橫向三欄並排佈局)
 # ------------------------------------------
 with main_tabs[1]:
     st.header("🗂️ 智能字彙記憶庫")
-    st.write("檢視您目前擁有的所有特訓單字。支援關鍵字即時篩選、詳細智能字卡解構、以及「多向配對連連看」暖身遊戲。")
+    st.write("檢視您目前擁有的所有特訓單字。支援時間排程篩選與橫向卡片解構。")
+    
+    # 📅 Anki 排程篩選核心開關
+    filter_today_view = st.checkbox("📅 只顯示今日「到期/需複習」之特訓字彙", value=True, key="filter_today_vocab")
     
     all_words = get_all_words(st.session_state.user_id)
     
+    # 執行排程過濾
+    if filter_today_view:
+        today_date_str = datetime.now().strftime("%Y-%m-%d")
+        all_words = [w for w in all_words if w[6] <= today_date_str]
+        
     if not all_words:
-        st.info("您的記憶庫目前空空如也，請先前往「📥 數據匯入中心」匯入第一個單字吧！")
+        st.info("目前沒有需要複習的單字！若想查看全部字卡，請取消勾選上方的「只顯示今日到期」複習開關。")
     else:
-        search_query = st.text_input("🔍 搜尋字彙庫內容 (輸入英文單字或中文核心釋義關鍵字)", "").strip().lower()
+        search_query = st.text_input("🔍 搜尋字彙庫內容 (輸入英文單字或中文釋義關鍵字)", "").strip().lower()
         filtered_words = [w for w in all_words if search_query in w[0] or search_query in w[1]]
         
         st.markdown("---")
         with st.expander("🎲 每日測驗前哨站：核心定義「多向連連看」暖身配對賽"):
             st.write("系統會隨機抽取記憶庫中的 3 個單字，請嘗試在下拉選單中找出各自正確的中文含意！")
             game_pool = random.sample(all_words, min(3, len(all_words)))
-            
             all_defs = [w[1] for w in game_pool]
             random.shuffle(all_defs)
             
@@ -388,7 +406,7 @@ with main_tabs[1]:
                 if user_ans == w_real_def:
                     correct_count += 1
             if correct_count == len(game_pool) and len(game_pool) > 0:
-                st.success("🎯 太厲害了！連連看全部配對正確！大腦記憶已成功喚醒，您可以前往第三分頁挑戰魔鬼測驗了！")
+                st.success("🎯 太厲害了！連連看全部配對正確！大腦記憶已成功喚醒！")
         st.markdown("---")
         
         st.subheader(f"📊 目前已收錄字卡共計 {len(filtered_words)} 筆")
@@ -396,24 +414,14 @@ with main_tabs[1]:
             w_word, w_def, w_gram, w_mne, w_conf, w_sent, w_date, w_streak, w_err, _, w_id = w
             
             with st.container(border=True):
-                col1, col2, col3 = st.columns([2, 5, 2])
-                with col1:
+                col_left, col_mid, col_right = st.columns([2, 5, 2])
+                with col_left:
                     st.subheader(f"🔤 {w_word}")
-                    st.caption(f"📅 下期複習: {w_date} | 🔥 記憶鏈: {w_streak} | ❌ 錯誤次數: {w_err}")
+                    st.caption(f"📅 複習日: {w_date} | 🔥 記憶鏈: {w_streak} | ❌ 錯誤: {w_err}")
                     tts_button(w_word, label="🔊 聽發音")
-                with col2:
+                with col_mid:
                     st.markdown(f"**核心釋義：** {w_def}")
-                    with st.expander("🔍 檢視完整大腦解構（文法公式、諧音聯想與易混淆字）"):
-                        st.markdown(f"### 📋 文法搭配公式\n{w_gram}")
-                        st.markdown(f"### 🎯 諧音口訣記憶\n{w_mne}")
-                        st.markdown(f"### ⚠️ 易混淆單字精準辨析\n{w_conf}")
-                        st.markdown("### 🎬 高階實戰商務例句")
-                        for s in w_sent.split("###"):
-                            if "||" in s:
-                                en, tw = s.split("||")
-                                st.markdown(f"• **{en}**")
-                                st.markdown(f"  *{tw}*")
-                with col3:
+                with col_right:
                     if st.button("🗑️ 刪除字卡", key=f"del_{w_id}"):
                         conn = sqlite3.connect('anki_vocab.db')
                         c = conn.cursor()
@@ -423,18 +431,41 @@ with main_tabs[1]:
                         st.toast(f"已從記憶庫中移除單字 {w_word}")
                         time.sleep(0.5)
                         st.rerun()
+                        
+                # 🛠️ 【橫向三欄佈局優化】：將原本直條式卡片改為「橫向並排」呈現
+                st.markdown("#### 🔍 大腦解構全景圖")
+                card_col1, card_col2, card_col3 = st.columns(3)
+                with card_col1:
+                    st.info(f"📋 **文法搭配公式**\n\n{w_gram}")
+                with card_col2:
+                    st.success(f"🎯 **諧音口訣記憶**\n\n{w_mne}")
+                with card_col3:
+                    st.warning(f"⚠️ **易混淆單字辨析**\n\n{w_conf}")
+                    
+                with st.expander("🎬 檢視高階實戰商務例句"):
+                    for s in w_sent.split("###"):
+                        if "||" in s:
+                            en, tw = s.split("||")
+                            st.markdown(f"• **{en}**\n\n  *{tw}*")
 
 # ------------------------------------------
-# 分頁 3: 七大維度特訓魔鬼測驗
+# 分頁 3: 七大維度特訓魔鬼測驗 (升級：排程篩選、Anki經典評分按鈕)
 # ------------------------------------------
 with main_tabs[2]:
     st.header("⚔️ 七大維度特訓魔鬼測驗")
-    st.write("融合七大核心科學題型：拼寫填充、片語下拉、語法手動填充、克漏字、語音聽寫、整句重組、連連看（已在記憶庫提供）。")
+    st.write("融合七大核心科學題型。可依據到期日進行複習，並提供 Anki 精熟度回饋機制。")
+    
+    # 📅 測驗到期排程過濾核心開關
+    filter_today_quiz = st.checkbox("📅 只挑選今日「到期/需複習」之字彙進行測驗", value=True, key="filter_today_quiz_key")
     
     all_quiz_words = [w for w in get_all_words(st.session_state.user_id) if w[9]]
     
+    if filter_today_quiz:
+        today_date_str = datetime.now().strftime("%Y-%m-%d")
+        all_quiz_words = [w for w in all_quiz_words if w[6] <= today_date_str]
+        
     if not all_quiz_words:
-        st.info("尚未有任何包含 AI 測驗數據的單字，請先至數據匯入中心打包單字。")
+        st.info("目前沒有到期需要測驗的單字！放鬆一下，或取消上方的到期篩選來練習其他單字。")
     else:
         quiz_word_options = [w[0] for w in all_quiz_words]
         selected_quiz_word = st.selectbox("🎯 請選擇您目前想要深度淬鍊的特訓單字：", quiz_word_options, key="select_quiz_word_main")
@@ -445,6 +476,29 @@ with main_tabs[2]:
         
         st.markdown(f"### 🔏 當前淬鍊單字：**{selected_quiz_word.upper()}**")
         
+        # 👑 Anki 評分回饋面版（每道大題完成或自我審視後可直接評分）
+        st.markdown("##### 📥 請根據您對此單字的當下記錄，點擊按鈕調整 Anki 記憶排程：")
+        btn_s1, btn_s2, btn_s3 = st.columns(3)
+        with btn_s1:
+            if st.button("🔴 忘記了 (1天後重新特訓)", key=f"anki_f_{w_id}", use_container_width=True):
+                update_anki_schedule(w_id, "forgot")
+                st.error("已排程至明天。不要氣餒，明天繼續加強！")
+                time.sleep(0.8)
+                st.rerun()
+        with btn_s2:
+            if st.button("🟡 稍微模糊 (3天後再次複習)", key=f"anki_b_{w_id}", use_container_width=True):
+                update_anki_schedule(w_id, "blur")
+                st.warning("已排程至 3 天後。大腦正在強化連結！")
+                time.sleep(0.8)
+                st.rerun()
+        with btn_s3:
+            if st.button("🟢 完全熟練 (7天後深度挑戰)", key=f"anki_m_{w_id}", use_container_width=True):
+                update_anki_schedule(w_id, "master")
+                st.success("太棒了！已將其排程至 7 天後複習，記憶鏈延伸！")
+                time.sleep(0.8)
+                st.rerun()
+        
+        st.markdown("---")
         t1, t2, t3, t4, t5, t6 = st.tabs([
             "1. 核心字彙拼寫題", "2. 片語搭配下拉題", "3. 語法結構手動填充題", 
             "4. 情境克漏字選擇題", "5. 語音反向聽寫盲聽題", "6. 國際檢定整句重組題"
@@ -501,7 +555,7 @@ with main_tabs[2]:
                 if ans_5 == selected_quiz_word:
                     st.success("🎯 音感與拼寫完美契合！盲聽聽寫完全正確！")
                 else:
-                    st.error("❌ 音頻拼寫不吻合，請再點擊一次播放按鈕仔細聆聽發音. ")
+                    st.error("❌ 音頻拼寫不吻合，請再點擊一次播放按鈕仔細聆聽發音。")
                     
         with t6:
             st.markdown("#### 🔗 階段六：高階語感重塑 - 國際檢定級整句單字重組題")
@@ -532,14 +586,13 @@ with main_tabs[2]:
                     st.markdown(f"👉 **官方權威正確解答句架構為：**\n`{raw_sentence}`")
 
 # ------------------------------------------
-# 👑 新增核心管理員後台功能 (只有您的帳號可見)
+# 👑 核心管理員後台功能 (只有您的帳號可見)
 # ------------------------------------------
 if is_admin:
     with main_tabs[3]:
         st.header("👑 系統核心管理員控制台")
         st.write("歡迎總管理員回來。此處提供最高調度權限，可直接檢視核心資料庫並手動調整用戶狀態。")
         
-        # 讀取目前全系統所有註冊者資料
         def load_all_users():
             conn = sqlite3.connect('anki_vocab.db')
             c = conn.cursor()
@@ -549,22 +602,17 @@ if is_admin:
             return rows
 
         users_list = load_all_users()
-        
-        # 分類面版
         adm_tab1, adm_tab2, adm_tab3 = st.tabs(["📊 用戶數據名冊", "🔑 忘記密碼・重設中心", "💰 儲值/管理點數中心"])
         
-        # 管理面板 1: 數據名冊
         with adm_tab1:
             st.subheader(f"👥 目前加入系統的正式用戶（共計 {len(users_list)} 人）")
             if not users_list:
                 st.info("目前尚無其他正式註冊會員。")
             else:
-                # 建立表格
                 import pandas as pd
                 df = pd.DataFrame(users_list, columns=["用戶內部識別碼 ID", "註冊電子郵件 (Email)", "用戶密碼 (明碼)", "剩餘點數"])
                 st.dataframe(df, use_container_width=True)
                 
-                # 快速全體增加福利點數功能
                 st.markdown("---")
                 st.markdown("#### ⚡ 系統全體廣播發放點數補貼")
                 bonus_amt = st.number_input("請輸入要送給『全體用戶』的福利點數：", min_value=1, max_value=100, value=10)
@@ -578,17 +626,14 @@ if is_admin:
                     time.sleep(1)
                     st.rerun()
 
-        # 管理面板 2: 忘記密碼更改
         with adm_tab2:
             st.subheader("🔑 忘記密碼維護通道")
-            st.write("如果用戶忘記密碼，請在下方選擇他們的 Email 並直接輸入新密碼覆蓋。")
-            
             if not users_list:
                 st.info("目前無用戶可供修改。")
             else:
                 user_emails = [u[1] for u in users_list]
                 selected_user_email = st.selectbox("請選擇需要協助重設密碼的用戶 Email：", user_emails, key="pwd_select_user")
-                new_assigned_pwd = st.text_input("請輸入要幫他設定的【新密碼】", type="default", help="可以直接輸入明碼供用戶抄寫")
+                new_assigned_pwd = st.text_input("請輸入要幫他設定的【新密碼】", type="default")
                 
                 if st.button("確認強制更新用戶密碼"):
                     if not new_assigned_pwd.strip():
@@ -599,19 +644,16 @@ if is_admin:
                         c.execute("UPDATE users SET password=? WHERE email=?", (new_assigned_pwd.strip(), selected_user_email))
                         conn.commit()
                         conn.close()
-                        st.success(f"🔑 密碼更換成功！用戶 `{selected_user_email}` 的密碼已成功變更為：**{new_assigned_pwd.strip()}**")
+                        st.success(f"🔑 密碼更換成功！")
                         time.sleep(1)
                         st.rerun()
 
-        # 管理面板 3: 儲值點數功能
         with adm_tab3:
             st.subheader("💰 用戶特訓金幣與點數儲值中心")
-            st.write("手動為指定的用戶儲值可用點數（1點可查一個單字）。")
-            
             if not users_list:
                 st.info("目前無用戶可供儲值。")
             else:
-                user_options_credits = {u[1]: (u[0], u[3]) for u in users_list} # email -> (id, current_credits)
+                user_options_credits = {u[1]: (u[0], u[3]) for u in users_list}
                 selected_credit_email = st.selectbox("請選擇要執行儲值的用戶 Email：", list(user_options_credits.keys()), key="credit_select_user")
                 
                 target_uid, target_cre = user_options_credits[selected_credit_email]
@@ -625,10 +667,10 @@ if is_admin:
                     c = conn.cursor()
                     if deposit_mode == "➕ 儲值增加點數":
                         c.execute("UPDATE users SET credits = credits + ? WHERE id=?", (change_amount, target_uid))
-                        st.success(f"💰 儲值成功！已幫 `{selected_credit_email}` 增加 {change_amount} 點！")
+                        st.success(f"💰 儲值成功！")
                     else:
                         c.execute("UPDATE users SET credits = max(0, credits - ?) WHERE id=?", (change_amount, target_uid))
-                        st.success(f"⚠️ 扣除成功！已從 `{selected_credit_email}` 扣除 {change_amount} 點！")
+                        st.success(f"⚠️ 扣除成功！")
                     conn.commit()
                     conn.close()
                     time.sleep(1)
