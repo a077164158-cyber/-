@@ -13,7 +13,7 @@ from google.genai import types
 st.set_page_config(page_title="EchoBrain SRS 核心系統", layout="wide", initial_sidebar_state="expanded")
 
 # 🌟 管理員公用 API 金鑰設定（請在此處填入您的真實金鑰）
-BACKEND_GEMINI_KEY = "AQ.Ab8RN6Lauqruyzzq71MnPmyU5rWY2ruoZWKzN-ETUvjvgyVggA"
+BACKEND_GEMINI_KEY = "你的_GEMINI_API_KEY_請在此處替換"
 
 # 👑 指定管理員帳密配置
 ADMIN_EMAIL = "a23623020428@gmail.com"
@@ -61,6 +61,17 @@ def init_db():
                     password TEXT,
                     credits INTEGER DEFAULT 10
                 )''')
+                
+    # 🔄 【Bug 修正核心】：動態檢查舊資料表是否缺少新擴充的欄位，若缺少則自動補上
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN password TEXT")
+    except sqlite3.OperationalError:
+        pass  # 欄位已存在，跳過
+        
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN credits INTEGER DEFAULT 10")
+    except sqlite3.OperationalError:
+        pass  # 欄位已存在，跳過
                 
     # 自動插入管理員帳號至本地資料庫，確保資料一致性
     c.execute("INSERT OR REPLACE INTO users (id, email, password, credits) VALUES (?, ?, ?, ?)",
@@ -467,7 +478,7 @@ with main_tabs[2]:
                 if ans_5 == selected_quiz_word:
                     st.success("🎯 音感與拼寫完美契合！盲聽聽寫完全正確！")
                 else:
-                    st.error("❌ 音頻拼寫不吻合，請再點擊一次播放按鈕仔細聆聽發音。")
+                    st.error("❌ 音頻拼寫不吻合，請再點擊一次播放按鈕仔細聆聽發音. ")
                     
         with t6:
             st.markdown("#### 🔗 階段六：高階語感重塑 - 國際檢定級整句單字重組題")
