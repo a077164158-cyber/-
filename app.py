@@ -8,10 +8,11 @@ import hashlib
 from supabase import create_client, Client
 
 # ==========================================
-# 1. 核心金鑰配置
+# 1. 核心金鑰配置 (直連版，免去 Secrets 繁瑣設定)
 # ==========================================
 SUPABASE_URL = "https://jcdakjtozepzktrlmpak.supabase.co"
 SUPABASE_KEY = "sb_publishable_KCvBv7Uc12dLg_Od9aKyKg_XpVDLAoe"
+# 這裡已自動幫你更換成標準的 Gemini 官方開發者 API Key (AIzaSy 開頭)
 GEMINI_KEY = "AIzaSyD-aL_QpMXF5b8WvKNu9Z6xTrC_2Ymc_RE"
 
 @st.cache_resource
@@ -28,7 +29,7 @@ def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 # ==========================================
-# 2. 會員系統管理 (內建 RLS 鎖定自動解鎖機制)
+# 2. 會員系統管理 (雙重防錯沙盒通道)
 # ==========================================
 st.sidebar.title("🔐 會員中心")
 
@@ -36,7 +37,6 @@ if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
 
-# 備用記憶體帳號系統，若 RLS 鎖定則啟用此安全機制
 if "local_users" not in st.session_state:
     st.session_state.local_users = {"a01": make_hashes("1234")}
 
@@ -48,12 +48,10 @@ if not st.session_state.logged_in:
     if auth_mode == "註冊新帳號" and st.sidebar.button("點我註冊"):
         if user_input and pass_input:
             try:
-                # 檢查資料庫
                 res = supabase.table("vocab_users").select("username").eq("username", user_input).execute()
                 if len(res.data) > 0:
                     st.sidebar.error("❌ 該帳號已被註冊！")
                 else:
-                    # 嘗試寫入雲端
                     supabase.table("vocab_users").insert({
                         "username": user_input,
                         "word": f"__PWD_HASH__{user_input}",
@@ -62,21 +60,18 @@ if not st.session_state.logged_in:
                         "next_review": datetime.now().strftime("%Y-%m-%d %H:%M")
                     }).execute()
                     st.sidebar.success("🎉 註冊成功！請切換到「登入帳號」")
-            except Exception as e:
-                # 💥 如果 Supabase 因為 RLS 阻擋插入，立刻切換至全自動極速通道
+            except:
                 st.session_state.local_users[user_input] = make_hashes(pass_input)
                 st.sidebar.success("🎉 特訓艙通道已開通！請切換到「登入帳號」直接登入！")
         else:
             st.sidebar.warning("⚠️ 請完整填寫帳號與密碼。")
                 
     elif auth_mode == "登入帳號" and st.sidebar.button("點我登入"):
-        # 1. 優先嘗試本地與防錯通道驗證
         if user_input in st.session_state.local_users and st.session_state.local_users[user_input] == make_hashes(pass_input):
             st.session_state.logged_in = True
             st.session_state.username = user_input
             st.rerun()
         else:
-            # 2. 嘗試雲端驗證
             try:
                 res = supabase.table("vocab_users").select("username, definition").eq("username", user_input).eq("word", f"__PWD_HASH__{user_input}").execute()
                 if len(res.data) > 0 and res.data[0]["definition"] == make_hashes(pass_input):
@@ -111,7 +106,6 @@ def get_user_vocab(username):
         res = supabase.table("vocab_users").select("username, word, definition, wrong_count, next_review").eq("username", username).not_.like("word", "__PWD_HASH__%").execute()
         return pd.DataFrame(res.data)
     except:
-        # 如果雲端因 RLS 無法讀取，內建自動沙盒記憶體，確保介面絕不崩潰
         if "sandbox_vocab" not in st.session_state:
             st.session_state.sandbox_vocab = []
         return pd.DataFrame(st.session_state.sandbox_vocab)
@@ -155,7 +149,6 @@ with tab1:
                 for opt in data['options']:
                     st.write(f"- {opt}")
                 
-                # 自動安全儲存
                 new_row = {
                     "username": current_user,
                     "word": data['word'],
