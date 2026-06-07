@@ -206,36 +206,39 @@ def main():
         st.session_state.user_email = ""
 
     # ---- 狀況 A: 會員尚未登入門檻 ----
+   # ---- 狀況 A: 會員尚未登入門檻 ----
     if not st.session_state.logged_in:
         st.title("🧠 EchoBrain SRS 系統門禁安全中心")
         st.markdown("歡迎使用全維度大腦記憶特訓系統！請登入或註冊您的會員帳號以開始使用。")
         
         tab1, tab2 = st.tabs(["🔐 會員登入", "📝 新用戶註冊"])
         
+        with tab1:
+            st.subheader("登入帳號")
+            login_email = st.text_input("電子郵件 (Email)", key="login_email_input")
+            login_pwd = st.text_input("密碼 (Password)", type="password", key="login_pwd_input")
+            if st.button("確認登入", key="btn_signin"):
+                clean_login_email = login_email.strip() if login_email else ""
+                if clean_login_email and login_pwd:
+                    with st.spinner("安全驗證中..."):
+                        res, code = supabase_signin(clean_login_email, login_pwd)
+                    if code == 200 or "access_token" in res:
+                        st.session_state.logged_in = True
+                        st.session_state.user_id = res["user"]["id"]
+                        st.session_state.user_email = res["user"]["email"]
+                        st.success(f"🎉 登入成功！歡迎回來 {st.session_state.user_email}")
+                        st.rerun()
+                    else:
+                        error_msg = res.get("error_description") or res.get("error", {}).get("message", "帳號或密碼錯誤。")
+                        st.error(f"❌ 登入失敗：{error_msg}")
+                else:
+                    st.warning("請填寫所有欄位。")
+                    
         with tab2:
             st.subheader("免費註冊新帳號")
             reg_email = st.text_input("設定電子郵件 (Email)", key="reg_email_input")
             reg_pwd = st.text_input("設定密碼 (至少 6 位字元)", type="password", key="reg_pwd_input")
             if st.button("註冊帳戶", key="btn_signup"):
-                # 💡 關鍵優化：使用 .strip() 自動清除使用者不小心按到的前後空白字元
-                clean_email = reg_email.strip() if reg_email else ""
-                if clean_email and reg_pwd:
-                    with st.spinner("正在向雲端安全性註冊..."):
-                        res, code = supabase_signup(clean_email, reg_pwd)
-                    if code == 200 or "id" in res.get("user", {}):
-                        st.success("🎉 註冊成功！部分驗證可能需要查收確認信，您現在可以切換至「會員登入」分頁進入系統。")
-                    else:
-                        error_msg = res.get("error", {}).get("message") or res.get("msg", "註冊失敗，請檢查格式。")
-                        st.error(f"❌ 註冊失敗：{error_msg}")
-                else:
-                    st.warning("請填寫所有欄位。")
-                    
-      with tab2:
-            st.subheader("免費註冊新帳號")
-            reg_email = st.text_input("設定電子郵件 (Email)", key="reg_email_input")
-            reg_pwd = st.text_input("設定密碼 (至少 6 位字元)", type="password", key="reg_pwd_input")
-            if st.button("註冊帳戶", key="btn_signup"):
-                # 💡 關鍵優化：使用 .strip() 自動清除使用者不小心按到的前後空白字元
                 clean_email = reg_email.strip() if reg_email else ""
                 if clean_email and reg_pwd:
                     with st.spinner("正在向雲端安全性註冊..."):
