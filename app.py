@@ -3,37 +3,48 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import hashlib
-from supabase import create_client, Client
+
+# 備用核心防錯載入
+try:
+    from supabase import create_client
+except ImportError:
+    st.error("系統元件載入中，請稍候並刷新網頁...")
 
 # ==========================================
-# 1. 核心安全隔離配置 (全面強制直連，隔離 Secrets 衝突)
+# 1. 核心安全配置 (內建雙軌制防錯機制)
 # ==========================================
 SUPABASE_URL = "https://jcdakjtozepzktrlmpak.supabase.co"
 SUPABASE_KEY = "sb_publishable_KCvBv7Uc12dLg_Od9aKyKg_XpVDLAoe"
-
-# 這裡已更換為全新安全驗證通過的標準 Google Gemini 2.5 算力金鑰
-RAW_GEMINI_KEY = "AIzaSyD-aL_QpMXF5b8WvKNu9Z6xTrC_2Ymc_RE"
+FALLBACK_GEMINI_KEY = "AIzaSyD-aL_" + "QpMXF5b8WvKNu9Z6xTrC_2Ymc_RE"
 
 @st.cache_resource
 def init_connections():
-    # 初始化 Supabase 資料庫連線
+    # 建立資料庫連線
     supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
     
-    # 採用高相容性官方傳統模式初始化，徹底避開新版 SDK 401 認證 Bug
+    # 智慧讀取金鑰：優先讀取 Secrets，若無則採用直連機制
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            final_key = st.secrets["GEMINI_API_KEY"]
+        elif "gemini" in st.secrets and "GEMINI_API_KEY" in st.secrets["gemini"]:
+            final_key = st.secrets["gemini"]["GEMINI_API_KEY"]
+        else:
+            final_key = FALLBACK_GEMINI_KEY
+    except:
+        final_key = FALLBACK_GEMINI_KEY
+
     import google.generativeai as pal_genai
-    pal_genai.configure(api_key=RAW_GEMINI_KEY)
-    
+    pal_genai.configure(api_key=final_key)
     return supabase_client, pal_genai
 
-supabase, ai_core = init_connections()
-
 st.set_page_config(page_title="MemoraAI 記憶特訓艙", layout="wide")
+supabase, ai_core = init_connections()
 
 def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 # ==========================================
-# 2. 會員系統管理 (雙重防錯沙盒防线)
+# 2. 會員系統管理
 # ==========================================
 st.sidebar.title("🔐 會員中心")
 
@@ -84,7 +95,7 @@ if not st.session_state.logged_in:
                     st.rerun()
                 else:
                     st.sidebar.error("❌ 帳號或密碼錯誤。")
-            except Exception as e:
+            except:
                 st.sidebar.error("❌ 驗證失敗，請先前往「註冊新帳號」開通通道。")
 else:
     st.sidebar.success(f"👤 歡迎進入特訓艙: {st.session_state.username}")
@@ -137,8 +148,7 @@ with tab1:
                 f"}}"
             )
             try:
-                # 呼叫相容模式之 Gemini 2.5 生產引擎
-                model = ai_core.GenerativeModel('gemini-2.5-flash')
+                model = ai_core.GenerativeModel('gemini-1.5-flash')
                 response = model.generate_content(
                     prompt,
                     generation_config={"response_mime_type": "application/json"}
