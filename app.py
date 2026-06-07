@@ -13,7 +13,7 @@ from google.genai import types
 st.set_page_config(page_title="EchoBrain SRS 核心系統", layout="wide", initial_sidebar_state="expanded")
 
 # 🌟 管理員公用 API 金鑰設定（請在此處填入您的真實金鑰）
-BACKEND_GEMINI_KEY = "你的_GEMINI_API_KEY_請在此處替換"
+BACKEND_GEMINI_KEY = "AQ.Ab8RN6Lauqruyzzq71MnPmyU5rWY2ruoZWKzN-ETUvjvgyVggA"
 ADMIN_EMAIL = "a23623020428@gmail.com"
 
 # 初始化 Session State
@@ -358,4 +358,141 @@ with active_tabs[2]:
         
         with t1:
             st.markdown(f"**提示（核心釋義）：** {target_word_record[1]}")
-            ans_1 = st.text_input("請拼寫英文單
+            ans_1 = st.text_input("請拼寫英文單字：", key=f"q1_{selected_quiz_word}").strip().lower()
+            if st.button("提交答案", key=f"btn1_{selected_quiz_word}"):
+                if ans_1 == selected_quiz_word:
+                    st.success("🎯 答對了！")
+                else:
+                    st.error(f"❌ 錯誤。提示第一個字母是 {selected_quiz_word[0]}")
+                    
+        with t2:
+            st.info(f"📋 **題目句子：**\n{q_data.get('phrase_q', '_______')}")
+            options_2 = ["-- 請選擇 --"] + q_data.get("phrase_options", [])
+            ans_2 = st.selectbox("選擇正確的介系詞：", options_2, key=f"q2_{selected_quiz_word}")
+            if st.button("驗證答案", key=f"btn2_{selected_quiz_word}"):
+                if ans_2 == q_data.get("phrase_ans"):
+                    st.success("🎯 完全正確！")
+                else:
+                    st.error(f"❌ 答案應為：{q_data.get('phrase_ans')}")
+                    
+        with t3:
+            st.warning(f"💡 **文法線索：** {q_data.get('grammar_hint', '')}")
+            st.info(f"📋 **題目：**\n{q_data.get('grammar_q', '')}")
+            ans_3 = st.text_input("手動輸入正確衍生詞形變化：", key=f"q3_{selected_quiz_word}").strip()
+            if st.button("驗證文法", key=f"btn3_{selected_quiz_word}"):
+                if ans_3.lower() == q_data.get('grammar_ans', '').strip().lower():
+                    st.success("🎯 完全正確！")
+                else:
+                    st.error(f"❌ 正確解答為：{q_data.get('grammar_ans')}")
+                    
+        with t4:
+            st.info(f"📖 **短文：**\n{q_data.get('cloze_q', '')}")
+            ans_4 = st.radio("選出適當單字：", q_data.get("cloze_options", []), key=f"q4_{selected_quiz_word}")
+            if st.button("驗證克漏字", key=f"btn4_{selected_quiz_word}"):
+                if ans_4 == q_data.get("cloze_ans"):
+                    st.success("🎯 答對了！")
+                else:
+                    st.error("❌ 答案應為本字。")
+                    
+        with t5:
+            st.write("🎵 盲聽發音聽寫：")
+            tts_button(selected_quiz_word, label="🔊 播放特訓語音")
+            ans_5 = st.text_input("輸入你聽到的單字：", key=f"q5_{selected_quiz_word}").strip().lower()
+            if st.button("驗證聽寫", key=f"btn5_{selected_quiz_word}"):
+                if ans_5 == selected_quiz_word:
+                    st.success("🎯 聽寫完全正確！")
+                else:
+                    st.error("❌ 拼寫不符，再聽一次。")
+                    
+        with t6:
+            raw_sentence = q_data.get("scrambled_sentence", "")
+            translation = q_data.get("scrambled_translation", "")
+            st.markdown(f"**🎯 中文目標：** *{translation}*")
+            user_reorder_seq = st.multiselect("請『依序』選點單字磁鐵重組句子：", options=list(set(raw_sentence.split())), key=f"mselect_{selected_quiz_word}")
+            if st.button("提交重組判斷", key=f"btn6_{selected_quiz_word}"):
+                user_str = " ".join(user_reorder_seq).strip().lower().replace(".", "").replace(",", "")
+                correct_str = raw_sentence.strip().lower().replace(".", "").replace(",", "")
+                if user_str == correct_str:
+                    st.success(f"🎯 重組成功！\n{raw_sentence}")
+                else:
+                    st.error(f"❌ 順序有誤。正確答案為：{raw_sentence}")
+
+# ------------------------------------------
+# 分頁 4: 🛠️ 系統最高管理員後台 
+# ------------------------------------------
+if st.session_state.user_email == ADMIN_EMAIL:
+    with active_tabs[3]:
+        st.header("👑 系統最高管理員安全控制台")
+        st.write("您好，管理員！您可以在此處查閱全站註冊會員、直接修正用戶密碼，以及核發/增減查詢點數。")
+        
+        conn = sqlite3.connect('anki_vocab.db')
+        c = conn.cursor()
+        c.execute("SELECT id, email, password, points FROM users")
+        user_rows = c.fetchall()
+        conn.close()
+        
+        # 1. 列表呈現所有人員與其帳密
+        st.subheader("👥 現有註冊成員名冊與配置")
+        
+        user_data_list = []
+        for r in user_rows:
+            user_data_list.append({
+                "用戶唯一識別碼": r[0],
+                "電子郵件 (Email)": r[1],
+                "目前密碼 (Password)": r[2],
+                "剩餘可用點數 (Tokens)": r[3]
+            })
+        st.dataframe(user_data_list, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # 2. 忘記密碼改密碼 / 點數變更操作區
+        st.subheader("🛠️ 會員核心狀態特調維護")
+        
+        user_emails_options = [r[1] for r in user_rows if r[1] != ADMIN_EMAIL]
+        
+        if not user_emails_options:
+            st.info("目前除了管理員您之外，尚無其他一般會員註冊。")
+        else:
+            target_manage_email = st.selectbox("請選擇您要維護的會員帳號：", user_emails_options)
+            
+            # 撈出該用戶目前的詳細資訊
+            current_target_info = [r for r in user_rows if r[1] == target_manage_email][0]
+            t_id, t_email, t_pwd, t_pts = current_target_info
+            
+            col_manage1, col_manage2 = st.columns(2)
+            
+            with col_manage1:
+                st.markdown("#### 🔐 變更/重設用戶密碼")
+                new_assigned_pwd = st.text_input("輸入全新密碼：", value=t_pwd)
+                if st.button("確認重設該會員密碼"):
+                    if new_assigned_pwd.strip():
+                        conn = sqlite3.connect('anki_vocab.db')
+                        c = conn.cursor()
+                        c.execute("UPDATE users SET password=? WHERE id=?", (new_assigned_pwd.strip(), t_id))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"🎉 成功！已將會員 `{t_email}` 的登入密碼修改為 `{new_assigned_pwd}`！")
+                        time.sleep(1)
+                        st.rerun()
+            
+            with col_manage2:
+                st.markdown("#### 🪙 儲值/增減查詢點數")
+                st.write(f"目前該會員點數餘額： **{t_pts}** 點")
+                points_action = st.radio("調整類型：", ["增加點數", "扣除點數", "直接設為特定數值"])
+                points_value = st.number_input("調整點數值：", min_value=0, value=5, step=1)
+                
+                if st.button("確認調整點數"):
+                    conn = sqlite3.connect('anki_vocab.db')
+                    c = conn.cursor()
+                    if points_action == "增加點數":
+                        c.execute("UPDATE users SET points = points + ? WHERE id=?", (points_value, t_id))
+                    elif points_action == "扣除點數":
+                        c.execute("UPDATE users SET points = MAX(0, points - ?) WHERE id=?", (points_value, t_id))
+                    else:
+                        c.execute("UPDATE users SET points = ? WHERE id=?", (points_value, t_id))
+                    conn.commit()
+                    conn.close()
+                    st.success(f"🎯 點數調整成功！已成功更新 `{t_email}` 的可用點數。")
+                    time.sleep(1)
+                    st.rerun()
