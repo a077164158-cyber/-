@@ -14,7 +14,7 @@ SUPABASE_URL = "https://jcdakjtozepzktrlmpak.supabase.co"
 SUPABASE_ANON_KEY = "sb_publishable_KCvBv7Uc12dLg_Od9aKyKg_XpVDLAoe"
 
 # 🌟 全局共用後端 API Key（用戶無需輸入即可使用，且不會暴露在前端）
-BACKEND_GEMINI_KEY = "你的_GEMINI_API_KEY_請在此處替換" 
+BACKEND_GEMINI_KEY = "AQ.Ab8RN6Lauqruyzzq71MnPmyU5rWY2ruoZWKzN-ETUvjvgyVggA" 
 
 # ==========================================
 # 1. 資料庫初始化 (升級：支援多用戶隔離機制)
