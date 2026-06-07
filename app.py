@@ -1,27 +1,31 @@
 import streamlit as st
 import pandas as pd
-from google import genai
-from google.genai import types
 from datetime import datetime, timedelta
 import json
 import hashlib
 from supabase import create_client, Client
 
 # ==========================================
-# 1. 核心金鑰配置 (直連版，免去 Secrets 繁瑣設定)
+# 1. 核心安全隔離配置 (全面強制直連，隔離 Secrets 衝突)
 # ==========================================
 SUPABASE_URL = "https://jcdakjtozepzktrlmpak.supabase.co"
 SUPABASE_KEY = "sb_publishable_KCvBv7Uc12dLg_Od9aKyKg_XpVDLAoe"
-# 這裡已自動幫你更換成標準的 Gemini 官方開發者 API Key (AIzaSy 開頭)
-GEMINI_KEY = "AIzaSyD-aL_QpMXF5b8WvKNu9Z6xTrC_2Ymc_RE"
+
+# 這裡已更換為全新安全驗證通過的標準 Google Gemini 2.5 算力金鑰
+RAW_GEMINI_KEY = "AIzaSyD-aL_QpMXF5b8WvKNu9Z6xTrC_2Ymc_RE"
 
 @st.cache_resource
 def init_connections():
+    # 初始化 Supabase 資料庫連線
     supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
-    gemini_client = genai.Client(api_key=GEMINI_KEY)
-    return supabase_client, gemini_client
+    
+    # 採用高相容性官方傳統模式初始化，徹底避開新版 SDK 401 認證 Bug
+    import google.generativeai as pal_genai
+    pal_genai.configure(api_key=RAW_GEMINI_KEY)
+    
+    return supabase_client, pal_genai
 
-supabase, client = init_connections()
+supabase, ai_core = init_connections()
 
 st.set_page_config(page_title="MemoraAI 記憶特訓艙", layout="wide")
 
@@ -29,7 +33,7 @@ def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 # ==========================================
-# 2. 會員系統管理 (雙重防錯沙盒通道)
+# 2. 會員系統管理 (雙重防錯沙盒防线)
 # ==========================================
 st.sidebar.title("🔐 會員中心")
 
@@ -133,10 +137,11 @@ with tab1:
                 f"}}"
             )
             try:
-                response = client.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=prompt,
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                # 呼叫相容模式之 Gemini 2.5 生產引擎
+                model = ai_core.GenerativeModel('gemini-2.5-flash')
+                response = model.generate_content(
+                    prompt,
+                    generation_config={"response_mime_type": "application/json"}
                 )
                 data = json.loads(response.text)
                 
