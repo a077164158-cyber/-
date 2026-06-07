@@ -8,7 +8,7 @@ import hashlib
 from supabase import create_client, Client
 
 # ==========================================
-# 1. 核心金鑰配置 (直連版，免去保險箱繁瑣設定)
+# 1. 核心金鑰配置
 # ==========================================
 SUPABASE_URL = "https://jcdakjtozepzktrlmpak.supabase.co"
 SUPABASE_KEY = "sb_publishable_KCvBv7Uc12dLg_Od9aKyKg_XpVDLAoe"
@@ -22,14 +22,13 @@ def init_connections():
 
 supabase, client = init_connections()
 
-# 🎯 更換全新專屬網站標題
 st.set_page_config(page_title="MemoraAI 記憶特訓艙", layout="wide")
 
 def make_hashes(password):
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 # ==========================================
-# 2. 會員系統管理 (相容性優化防錯版)
+# 2. 會員系統管理 (捨棄 id 欄位，改用 username 當唯一主鍵)
 # ==========================================
 st.sidebar.title("🔐 會員中心")
 
@@ -45,12 +44,12 @@ if not st.session_state.logged_in:
     if auth_mode == "註冊新帳號" and st.sidebar.button("點我註冊"):
         if user_input and pass_input:
             try:
-                # 穩健檢查帳號是否重複
-                res = supabase.table("vocab_users").select("id").eq("username", user_input).execute()
+                # 只撈取 username 欄位進行防重複檢查
+                res = supabase.table("vocab_users").select("username").eq("username", user_input).execute()
                 if len(res.data) > 0:
                     st.sidebar.error("❌ 該帳號已被註冊！")
                 else:
-                    # 修正相容性欄位結構，防範 APIError
+                    # 插入註冊資訊（完全不使用任何 id 欄位）
                     supabase.table("vocab_users").insert({
                         "username": user_input,
                         "word": f"__PWD_HASH__{user_input}",
@@ -60,13 +59,13 @@ if not st.session_state.logged_in:
                     }).execute()
                     st.sidebar.success("🎉 註冊成功！請切換到「登入帳號」")
             except Exception as e:
-                st.sidebar.error(f"資料庫連線異常，請確認 Table 欄位：{e}")
+                st.sidebar.error(f"資料庫插入失敗，請確認欄位名稱。錯誤：{e}")
         else:
             st.sidebar.warning("⚠️ 請完整填寫帳號與密碼。")
                 
     elif auth_mode == "登入帳號" and st.sidebar.button("點我登入"):
         try:
-            res = supabase.table("vocab_users").select("*").eq("username", user_input).eq("word", f"__PWD_HASH__{user_input}").execute()
+            res = supabase.table("vocab_users").select("username, definition").eq("username", user_input).eq("word", f"__PWD_HASH__{user_input}").execute()
             if len(res.data) > 0 and res.data[0]["definition"] == make_hashes(pass_input):
                 st.session_state.logged_in = True
                 st.session_state.username = user_input
@@ -74,7 +73,7 @@ if not st.session_state.logged_in:
             else:
                 st.sidebar.error("❌ 帳號或密碼錯誤。")
         except Exception as e:
-            st.sidebar.error(f"登入查詢失敗：{e}")
+            st.sidebar.error(f"登入驗證失敗：{e}")
 else:
     st.sidebar.success(f"👤 歡迎進入特訓艙: {st.session_state.username}")
     st.sidebar.write("🟢 AI 智慧算力已連線")
@@ -94,15 +93,13 @@ if not st.session_state.logged_in:
 
 current_user = st.session_state.username
 
-# 僅撈取該會員自己查過的單字，不與他人混雜
 def get_user_vocab(username):
     try:
-        res = supabase.table("vocab_users").select("*").eq("username", username).not_.like("word", "__PWD_HASH__%").execute()
+        res = supabase.table("vocab_users").select("username, word, definition, wrong_count, next_review").eq("username", username).not_.like("word", "__PWD_HASH__%").execute()
         return pd.DataFrame(res.data)
     except:
         return pd.DataFrame()
 
-# 建立功能分頁標籤
 tab1, tab2, tab3 = st.tabs(["🔍 AI 單字特訓大師", "🗂️ 我的專屬字卡庫", "🎯 SRS 科學複習測驗"])
 
 # --- Tab 1: AI 單字查詢 ---
@@ -142,7 +139,6 @@ with tab1:
                 for opt in data['options']:
                     st.write(f"- {opt}")
                 
-                # 自動安全儲存至使用者的專屬雲端字卡庫
                 supabase.table("vocab_users").insert({
                     "username": current_user,
                     "word": data['word'],
@@ -182,7 +178,6 @@ with tab3:
     df_vocab = get_user_vocab(current_user)
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
     
-    # 智慧篩選該帳號專屬且到期需複習的單字
     due_vocab = df_vocab[df_vocab['next_review'] <= now_str] if not df_vocab.empty else pd.DataFrame()
     
     if due_vocab.empty:
@@ -193,22 +188,23 @@ with tab3:
         try:
             q_info = json.loads(test_row['definition'])
             st.markdown(f"### 🎯 特訓挑戰：{q_info['quiz_question']}")
-            user_ans = st.radio("請選擇正確的答題單字：", q_info['options'], key=f"quiz_{test_row['id']}")
+            user_ans = st.radio("請選擇正確的答題單字：", q_info['options'], key=f"quiz_{test_row['word']}")
             
-            if st.button("送出答案驗證", key=f"btn_{test_row['id']}"):
+            if st.button("送出答案驗證", key=f"btn_{test_row['word']}"):
                 if user_ans == q_info['correct_answer']:
                     st.success("🎯 恭喜！回答完全正確！強大記憶力已建立！")
-                    new_interval = datetime.now() + timedelta(days=3)  # 答對排程至 3 天後
-                    supabase.table("vocab_users").update({"next_review": new_interval.strftime("%Y-%m-%d %H:%M")}).eq("id", test_row['id']).execute()
+                    new_interval = datetime.now() + timedelta(days=3)
+                    # 改用 username 和 word 當作定位點更新，避免使用 id
+                    supabase.table("vocab_users").update({"next_review": new_interval.strftime("%Y-%m-%d %H:%M")}).eq("username", current_user).eq("word", test_row['word']).execute()
                     st.write("✨ 大腦演算法已成功排程至 3 天後再次進行複習。")
                 else:
                     st.error(f"❌ 答錯了！正確答案是：{q_info['correct_answer']}")
                     st.info(f"💡 詳解：{q_info['explanation']}")
-                    new_interval = datetime.now() + timedelta(minutes=5)  # 答錯 5 分鐘後重新考
+                    new_interval = datetime.now() + timedelta(minutes=5)
                     supabase.table("vocab_users").update({
                         "wrong_count": int(test_row['wrong_count']) + 1,
                         "next_review": new_interval.strftime("%Y-%m-%d %H:%M")
-                    }).eq("id", test_row['id']).execute()
+                    }).eq("username", current_user).eq("word", test_row['word']).execute()
                     st.write("🔄 為加強記憶，此單字將在 5 分鐘後重新進入測驗排程。")
         except Exception as e:
             st.error(f"測驗模組載入異常: {e}")
