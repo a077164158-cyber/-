@@ -210,7 +210,7 @@ def fetch_gemini_learning_package(word, api_key):
       "confusable": "【⚠️ 易混淆單字精準辨析】\\n• 找出1個與該字字形或字義最易搞混的高頻單字進行對比辨析與例句。",
       "sentences": "第一句高階商務或生活英文例句||💡 中文翻譯###第二句高階商務或生活英文例句||💡 中文翻譯",
       
-      "phrase_q": "考驗片語/介系詞搭配的句子，將關鍵介系詞挖空，空格請用 _______ 代替。",
+      "phrase_q": "考驗片語/介系詞搭配的句子，將關鍵介系詞挖空，空格請用 _______ 代代替。",
       "phrase_options": ["正確介系詞", "干擾介系詞1", "干擾介系詞2", "干擾介系詞3"],
       "phrase_ans": "正確介系詞",
       
@@ -369,24 +369,26 @@ with main_tabs[0]:
                     st.rerun()
 
 # ------------------------------------------
-# 分頁 2: 字彙記憶庫 (升級：排程篩選、橫向三欄並排佈局)
+# 分頁 2: 字彙記憶庫 (包含：自由日期選擇、橫向三欄並排佈局)
 # ------------------------------------------
 with main_tabs[1]:
     st.header("🗂️ 智能字彙記憶庫")
     st.write("檢視您目前擁有的所有特訓單字。支援時間排程篩選與橫向卡片解構。")
     
-    # 📅 Anki 排程篩選核心開關
-    filter_today_view = st.checkbox("📅 只顯示今日「到期/需複習」之特訓字彙", value=True, key="filter_today_vocab")
+    # 📅 自訂排程日期選擇器開關
+    filter_by_date_view = st.checkbox("📅 啟用日期篩選功能", value=True, key="filter_date_vocab_toggle")
     
     all_words = get_all_words(st.session_state.user_id)
     
-    # 執行排程過濾
-    if filter_today_view:
-        today_date_str = datetime.now().strftime("%Y-%m-%d")
-        all_words = [w for w in all_words if w[6] <= today_date_str]
+    # 執行日期選擇過濾
+    if filter_by_date_view:
+        selected_view_date = st.date_input("請選擇想要檢視哪一天「到期/需複習」的字卡：", value=datetime.now().date(), key="vocab_review_date_input")
+        target_date_str = selected_view_date.strftime("%Y-%m-%d")
+        # 篩選出在該指定日期之前或當天需要複習的單字
+        all_words = [w for w in all_words if w[6] <= target_date_str]
         
     if not all_words:
-        st.info("目前沒有需要複習的單字！若想查看全部字卡，請取消勾選上方的「只顯示今日到期」複習開關。")
+        st.info("所選日期目前沒有需要複習的單字！若想查看全部字卡，請取消勾選上方的「啟用日期篩選功能」。")
     else:
         search_query = st.text_input("🔍 搜尋字彙庫內容 (輸入英文單字或中文釋義關鍵字)", "").strip().lower()
         filtered_words = [w for w in all_words if search_query in w[0] or search_query in w[1]]
@@ -409,7 +411,7 @@ with main_tabs[1]:
                 st.success("🎯 太厲害了！連連看全部配對正確！大腦記憶已成功喚醒！")
         st.markdown("---")
         
-        st.subheader(f"📊 目前已收錄字卡共計 {len(filtered_words)} 筆")
+        st.subheader(f"📊 目前篩選條件下收錄字卡共計 {len(filtered_words)} 筆")
         for w in filtered_words:
             w_word, w_def, w_gram, w_mne, w_conf, w_sent, w_date, w_streak, w_err, _, w_id = w
             
@@ -432,7 +434,7 @@ with main_tabs[1]:
                         time.sleep(0.5)
                         st.rerun()
                         
-                # 🛠️ 【橫向三欄佈局優化】：將原本直條式卡片改為「橫向並排」呈現
+                # 🛠️ 【橫向三欄佈局】：將原本直條式卡片保持橫向呈現
                 st.markdown("#### 🔍 大腦解構全景圖")
                 card_col1, card_col2, card_col3 = st.columns(3)
                 with card_col1:
@@ -449,23 +451,25 @@ with main_tabs[1]:
                             st.markdown(f"• **{en}**\n\n  *{tw}*")
 
 # ------------------------------------------
-# 分頁 3: 七大維度特訓魔鬼測驗 (升級：排程篩選、Anki經典評分按鈕)
+# 分頁 3: 七大維度特訓魔鬼測驗 (👑 升級：自由選日期功能)
 # ------------------------------------------
 with main_tabs[2]:
     st.header("⚔️ 七大維度特訓魔鬼測驗")
-    st.write("融合七大核心科學題型。可依據到期日進行複習，並提供 Anki 精熟度回饋機制。")
+    st.write("融合七大核心科學題型。可自訂日期進行複習特訓，並提供 Anki 精熟度回饋機制。")
     
-    # 📅 測驗到期排程過濾核心開關
-    filter_today_quiz = st.checkbox("📅 只挑選今日「到期/需複習」之字彙進行測驗", value=True, key="filter_today_quiz_key")
+    # 📅 【核心新增功能】：自由日期選擇器
+    filter_by_date_quiz = st.checkbox("📅 啟用測驗日期篩選功能", value=True, key="filter_date_quiz_toggle")
     
     all_quiz_words = [w for w in get_all_words(st.session_state.user_id) if w[9]]
     
-    if filter_today_quiz:
-        today_date_str = datetime.now().strftime("%Y-%m-%d")
-        all_quiz_words = [w for w in all_quiz_words if w[6] <= today_date_str]
+    if filter_by_date_quiz:
+        selected_quiz_date = st.date_input("📅 請自由選擇您想特訓哪一天「到期」的複習字彙：", value=datetime.now().date(), key="quiz_review_date_input")
+        target_quiz_date_str = selected_quiz_date.strftime("%Y-%m-%d")
+        # 挑選出在指定日期當天或之前到期、需要複習的單字題目
+        all_quiz_words = [w for w in all_quiz_words if w[6] <= target_quiz_date_str]
         
     if not all_quiz_words:
-        st.info("目前沒有到期需要測驗的單字！放鬆一下，或取消上方的到期篩選來練習其他單字。")
+        st.info("所選日期目前沒有到期需要測驗的單字！放鬆一下，或者可以取消勾選上方的篩選功能來練習全部單字。")
     else:
         quiz_word_options = [w[0] for w in all_quiz_words]
         selected_quiz_word = st.selectbox("🎯 請選擇您目前想要深度淬鍊的特訓單字：", quiz_word_options, key="select_quiz_word_main")
@@ -476,7 +480,7 @@ with main_tabs[2]:
         
         st.markdown(f"### 🔏 當前淬鍊單字：**{selected_quiz_word.upper()}**")
         
-        # 👑 Anki 評分回饋面版（每道大題完成或自我審視後可直接評分）
+        # 👑 Anki 評分回饋面版
         st.markdown("##### 📥 請根據您對此單字的當下記錄，點擊按鈕調整 Anki 記憶排程：")
         btn_s1, btn_s2, btn_s3 = st.columns(3)
         with btn_s1:
@@ -558,7 +562,7 @@ with main_tabs[2]:
                     st.error("❌ 音頻拼寫不吻合，請再點擊一次播放按鈕仔細聆聽發音。")
                     
         with t6:
-            st.markdown("#### 🔗 階段六：高階語感重塑 - 國際檢定級整句單字重組題")
+            st.markdown("#### 橫向六：高階語感重塑 - 國際檢定級整句單字重組題")
             raw_sentence = q_data.get("scrambled_sentence", "")
             translation = q_data.get("scrambled_translation", "")
             st.markdown(f"**🎯 句子中文翻譯目標：**\n*{translation}*")
@@ -586,7 +590,7 @@ with main_tabs[2]:
                     st.markdown(f"👉 **官方權威正確解答句架構為：**\n`{raw_sentence}`")
 
 # ------------------------------------------
-# 👑 核心管理員後台功能 (只有您的帳號可見)
+# 👑 核心管理員後台功能 (保持完全不變)
 # ------------------------------------------
 if is_admin:
     with main_tabs[3]:
@@ -607,7 +611,7 @@ if is_admin:
         with adm_tab1:
             st.subheader(f"👥 目前加入系統的正式用戶（共計 {len(users_list)} 人）")
             if not users_list:
-                st.info("目前尚無其他正式註冊會員。")
+                st.info("目目前尚無其他正式註冊會員。")
             else:
                 import pandas as pd
                 df = pd.DataFrame(users_list, columns=["用戶內部識別碼 ID", "註冊電子郵件 (Email)", "用戶密碼 (明碼)", "剩餘點數"])
