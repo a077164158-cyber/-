@@ -26,11 +26,12 @@ if "user_email" not in st.session_state:
 if "current_test" not in st.session_state:
     st.session_state.current_test = {}
 
-# SQLite 資料庫初始化（整合用戶管理、密碼儲存與點數系統）
+# SQLite 資料庫初始化（防崩潰自動結構升級版）
 def init_db():
     conn = sqlite3.connect('anki_vocab.db')
     c = conn.cursor()
-    # 建立字彙表
+    
+    # 建立或確認字彙表
     c.execute('''CREATE TABLE IF NOT EXISTS vocab (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT,
@@ -45,7 +46,8 @@ def init_db():
                     error_count INTEGER,
                     quiz_data TEXT
                 )''')
-    # 建立在地用戶表（用於支援管理員直接查看、改密碼與儲值功能）
+                
+    # 建立或確認用戶表
     c.execute('''CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
                     email TEXT UNIQUE,
@@ -53,7 +55,13 @@ def init_db():
                     points INTEGER DEFAULT 10
                 )''')
     
-    # 預先自動寫入最高管理員帳號
+    # 🔥 關鍵防錯：檢查舊使用者的 users 表有沒有 points 欄位，沒有就自動補上
+    try:
+        c.execute("SELECT points FROM users LIMIT 1")
+    except sqlite3.OperationalError:
+        c.execute("ALTER TABLE users ADD COLUMN points INTEGER DEFAULT 10")
+        
+    # 確保最高管理員帳密永遠存在於在地庫中
     c.execute("INSERT OR IGNORE INTO users (id, email, password, points) VALUES (?, ?, ?, ?)", 
               ("admin_root", ADMIN_EMAIL, "8642158a", 99999))
     
@@ -62,7 +70,7 @@ def init_db():
 
 init_db()
 
-# 輔助資料庫函式
+# 輔助資料庫功能
 def get_user_points(user_id):
     conn = sqlite3.connect('anki_vocab.db')
     c = conn.cursor()
@@ -124,7 +132,7 @@ def fetch_gemini_learning_package(word, api_key):
       
       "grammar_hint": "提示該字在此處應使用的衍生詞性（例如：動詞、名詞、形容詞、副詞或時態變化）",
       "grammar_q": "一個精準的文法填充題句子，空格用 ________ 代替。要求填入該字的『詞性衍生變形（如名詞形、形容詞形、副詞形）』或『特定時態/語態（如過去分詞）』。",
-      "grammar_ans": "該單字對應句子語法的正確衍生變形單字（例如：單字是 vulnerable，答案可能是 vulnerability）",
+      "grammar_ans": "該單字對應句子語法的正確衍生變形單字",
       
       "cloze_q": "一段包含2-3個句子的完整情境短文克漏字，將本字挖空寫成 [   ]。",
       "cloze_options": ["本字原形", "干擾字1", "干擾字2", "干擾字3"],
@@ -157,7 +165,7 @@ def fetch_gemini_learning_package(word, api_key):
             return None
 
 # ==========================================
-# 3. 系統安全門禁中心（整合系統預設帳密驗證）
+# 3. 系統安全門禁中心（校正縮排）
 # ==========================================
 if not st.session_state.logged_in:
     st.title("🧠 EchoBrain SRS 系統門禁安全中心")
@@ -172,7 +180,6 @@ if not st.session_state.logged_in:
         
         if st.button("確認登入", key="btn_signin"):
             if login_email and login_pwd:
-                # 優先檢查在地資料庫
                 conn = sqlite3.connect('anki_vocab.db')
                 c = conn.cursor()
                 c.execute("SELECT id, email FROM users WHERE email=? AND password=?", (login_email, login_pwd))
@@ -203,7 +210,6 @@ if not st.session_state.logged_in:
                     c = conn.cursor()
                     try:
                         new_uid = "user_" + str(int(time.time()))
-                        # 新註冊用戶預設給予 10 點點數
                         c.execute("INSERT INTO users (id, email, password, points) VALUES (?, ?, ?, ?)", (new_uid, reg_email, reg_pwd, 10))
                         conn.commit()
                         st.success("🎉 註冊成功！您已獲得預設開通 10 點點數。請切換至「會員登入」分頁進入系統。")
@@ -242,7 +248,7 @@ if st.session_state.user_email == ADMIN_EMAIL:
 active_tabs = st.tabs(tabs_list)
 
 # ------------------------------------------
-# 分頁 1: 數據匯入中心 (加裝扣點功能)
+# 分頁 1: 數據匯入中心 (1點查一個單字，其他不變)
 # ------------------------------------------
 with active_tabs[0]:
     st.header("📥 AI 數據打包匯入中心")
@@ -255,7 +261,7 @@ with active_tabs[0]:
         elif not input_word.strip():
             st.warning("請輸入有效的單字。")
         elif current_points <= 0 and st.session_state.user_email != ADMIN_EMAIL:
-            st.error("❌ 您的可用點數已耗盡！無法進行 AI 數據查詢。請聯絡管理員為您新增點數。")
+            st.error("❌ 您的可用點數已耗盡！無法進行 AI 數據查詢。請聯絡管理員為您儲值點數。")
         else:
             with st.spinner("Gemini AI 正在解構字彙中..."):
                 pkg = fetch_gemini_learning_package(input_word, BACKEND_GEMINI_KEY)
@@ -278,7 +284,6 @@ with active_tabs[0]:
                                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)""",
                                   (st.session_state.user_id, input_word.strip().lower(), pkg['definition'], pkg['grammar'], pkg['mnemonic'], pkg['confusable'], pkg['sentences'], today_str, quiz_data_str))
                         
-                        # 只有非管理員需要扣除點數
                         if st.session_state.user_email != ADMIN_EMAIL:
                             deduct_user_point(st.session_state.user_id)
                         st.success(f"🎉 成功！單字「{input_word}」已成功打包並扣除 1 點點數！")
@@ -288,7 +293,7 @@ with active_tabs[0]:
                     st.rerun()
 
 # ------------------------------------------
-# 分頁 2: 字彙記憶庫
+# 分頁 2: 字彙記憶庫 (維持原功能不變)
 # ------------------------------------------
 with active_tabs[1]:
     st.header("🗂️ 智能字彙記憶庫")
@@ -300,7 +305,6 @@ with active_tabs[1]:
         search_query = st.text_input("🔍 搜尋字彙庫內容", "").strip().lower()
         filtered_words = [w for w in all_words if search_query in w[0] or search_query in w[1]]
         
-        # 暖身小遊戲
         with st.expander("🎲 核心定義「多向連連看」暖身配對賽"):
             game_pool = random.sample(all_words, min(3, len(all_words)))
             all_defs = [w[1] for w in game_pool]
@@ -309,7 +313,7 @@ with active_tabs[1]:
             for item in game_pool:
                 w_word = item[0]
                 w_real_def = item[1]
-                user_ans = st.selectbox(f"單字【 {w_word} 】的中文释义？", ["-- 請選擇 --"] + all_defs, key=f"match_{w_word}")
+                user_ans = st.selectbox(f"單字【 {w_word} 】的中文釋義？", ["-- 請選擇 --"] + all_defs, key=f"match_{w_word}")
                 if user_ans == w_real_def:
                     correct_count += 1
             if correct_count == len(game_pool) and len(game_pool) > 0:
@@ -339,14 +343,14 @@ with active_tabs[1]:
                         st.rerun()
 
 # ------------------------------------------
-# 分頁 3: 七大維度特訓魔鬼測驗
+# 分頁 3: 七大維度特訓魔鬼測驗 (維持原功能不變)
 # ------------------------------------------
 with active_tabs[2]:
     st.header("⚔️ 七大維度特訓魔鬼測驗")
     all_quiz_words = [w for w in get_all_words(st.session_state.user_id) if w[9]]
     
     if not all_quiz_words:
-        st.info("尚未有任何測驗數據，請先至數據匯入中心「重新匯入單字」以補齊全新的測驗欄位結構！")
+        st.info("尚未有任何新版測驗數據，請先至數據匯入中心「重新輸入單字匯入」以更新資料庫欄位！")
     else:
         quiz_word_options = [w[0] for w in all_quiz_words]
         selected_quiz_word = st.selectbox("🎯 請選擇想要深度特訓的字彙：", quiz_word_options)
@@ -418,12 +422,12 @@ with active_tabs[2]:
                     st.error(f"❌ 順序有誤。正確答案為：{raw_sentence}")
 
 # ------------------------------------------
-# 分頁 4: 🛠️ 系統最高管理員後台 
+# 分頁 4: 🛠️ 系統最高管理員後台 (完全滿足新增之特殊管理權限)
 # ------------------------------------------
 if st.session_state.user_email == ADMIN_EMAIL:
     with active_tabs[3]:
         st.header("👑 系統最高管理員安全控制台")
-        st.write("您好，管理員！您可以在此處查閱全站註冊會員、直接修正用戶密碼，以及核發/增減查詢點數。")
+        st.write("管理員您好！此控制面板專屬於您，提供全局會員查閱、密碼強改與點數儲值功能。")
         
         conn = sqlite3.connect('anki_vocab.db')
         c = conn.cursor()
@@ -431,40 +435,36 @@ if st.session_state.user_email == ADMIN_EMAIL:
         user_rows = c.fetchall()
         conn.close()
         
-        # 1. 列表呈現所有人員與其帳密
+        # 功能 1：顯示所有人及其實際帳密
         st.subheader("👥 現有註冊成員名冊與配置")
-        
         user_data_list = []
         for r in user_rows:
             user_data_list.append({
-                "用戶唯一識別碼": r[0],
+                "用戶識別碼": r[0],
                 "電子郵件 (Email)": r[1],
                 "目前密碼 (Password)": r[2],
-                "剩餘可用點數 (Tokens)": r[3]
+                "儲值可用點數": r[3]
             })
         st.dataframe(user_data_list, use_container_width=True)
         
         st.markdown("---")
-        
-        # 2. 忘記密碼改密碼 / 點數變更操作區
-        st.subheader("🛠️ 會員核心狀態特調維護")
+        st.subheader("🛠️ 會員核心狀態維護面板")
         
         user_emails_options = [r[1] for r in user_rows if r[1] != ADMIN_EMAIL]
         
         if not user_emails_options:
-            st.info("目前除了管理員您之外，尚無其他一般會員註冊。")
+            st.info("目前尚無其他一般註冊學員。")
         else:
-            target_manage_email = st.selectbox("請選擇您要維護的會員帳號：", user_emails_options)
-            
-            # 撈出該用戶目前的詳細資訊
+            target_manage_email = st.selectbox("請選擇您要維護的學員帳號：", user_emails_options)
             current_target_info = [r for r in user_rows if r[1] == target_manage_email][0]
             t_id, t_email, t_pwd, t_pts = current_target_info
             
             col_manage1, col_manage2 = st.columns(2)
             
+            # 功能 2：幫忘記密碼的人改密碼
             with col_manage1:
-                st.markdown("#### 🔐 變更/重設用戶密碼")
-                new_assigned_pwd = st.text_input("輸入全新密碼：", value=t_pwd)
+                st.markdown("#### 🔐 學員密碼人工覆蓋重設")
+                new_assigned_pwd = st.text_input("設定全新密碼：", value=t_pwd)
                 if st.button("確認重設該會員密碼"):
                     if new_assigned_pwd.strip():
                         conn = sqlite3.connect('anki_vocab.db')
@@ -476,16 +476,17 @@ if st.session_state.user_email == ADMIN_EMAIL:
                         time.sleep(1)
                         st.rerun()
             
+            # 功能 3：手動儲值點數
             with col_manage2:
-                st.markdown("#### 🪙 儲值/增減查詢點數")
-                st.write(f"目前該會員點數餘額： **{t_pts}** 點")
-                points_action = st.radio("調整類型：", ["增加點數", "扣除點數", "直接設為特定數值"])
-                points_value = st.number_input("調整點數值：", min_value=0, value=5, step=1)
+                st.markdown("#### 🪙 點數手動加值/扣除端點")
+                st.write(f"目前學員可用點數： **{t_pts}** 點")
+                points_action = st.radio("儲值操作類型：", ["增加點數 (儲值)", "扣除點數", "直接設為特定點數"])
+                points_value = st.number_input("操作點數數量：", min_value=0, value=10, step=1)
                 
-                if st.button("確認調整點數"):
+                if st.button("確認執行點數變更"):
                     conn = sqlite3.connect('anki_vocab.db')
                     c = conn.cursor()
-                    if points_action == "增加點數":
+                    if points_action == "增加點數 (儲值)":
                         c.execute("UPDATE users SET points = points + ? WHERE id=?", (points_value, t_id))
                     elif points_action == "扣除點數":
                         c.execute("UPDATE users SET points = MAX(0, points - ?) WHERE id=?", (points_value, t_id))
@@ -493,6 +494,6 @@ if st.session_state.user_email == ADMIN_EMAIL:
                         c.execute("UPDATE users SET points = ? WHERE id=?", (points_value, t_id))
                     conn.commit()
                     conn.close()
-                    st.success(f"🎯 點數調整成功！已成功更新 `{t_email}` 的可用點數。")
+                    st.success(f"🎯 點數儲值成功！已完成學員 `{t_email}` 的帳戶更新。")
                     time.sleep(1)
                     st.rerun()
