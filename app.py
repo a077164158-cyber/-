@@ -12,7 +12,7 @@ from supabase import create_client, Client
 # ==========================================
 SUPABASE_URL = "https://jcdakjtozepzktrlmpak.supabase.co"
 SUPABASE_KEY = "sb_publishable_KCvBv7Uc12dLg_Od9aKyKg_XpVDLAoe"
-GEMINI_KEY = "AQ.Ab8RN6LRqfXCsgvJdN5Xg2cT3JC9vsqT6fsce2oSDK0ZVkpM9Q"
+GEMINI_KEY = "AIzaSyD-aL_QpMXF5b8WvKNu9Z6xTrC_2Ymc_RE"
 
 @st.cache_resource
 def init_connections():
