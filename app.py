@@ -124,17 +124,18 @@ with tab1:
         if "GEMINI_API_KEY" not in st.secrets:
             st.error("⚠️ 偵測到尚未在 Streamlit Secrets 設定您的 API Key！請先完成後台設定再點擊按鈕。")
         else:
-            with st.spinner("🚀 Gemini 正在為您量身打造高階多益題型與科學字卡..."):
+            with st.spinner("🚀 Gemini 正在為您量身打造專屬學習字卡與模擬測驗..."):
+                # 開放式通用提示詞，不局限於多益
                 prompt = (
-                    f"請針對單字 '{search_word}' 進行深度解析。"
+                    f"請針對英文單字或片語 '{search_word}' 進行深度解析。"
                     f"你必須嚴格輸出符合以下 JSON 格式的內容，不要包含任何額外的 Markdown 標記或 ```json 字樣：\n"
                     f"{{\n"
                     f"  \"word\": \"{search_word}\",\n"
-                    f"  \"part_of_speech\": \"詞性\",\n"
-                    f"  \"chinese_definition\": \"繁體中文解釋\",\n"
-                    f"  \"english_definition\": \"英文詳細雙解\",\n"
-                    f"  \"quiz_question\": \"設計一題高階的多益選擇題，將單字 {search_word} 挖空，以 ______ 代替，上下文語境要豐富、有商務職場難度。\",\n"
-                    f"  \"options\": [\"包含正確單字與其他三個極具干擾性的高階多益字組成的四個選項A\", \"選項B\", \"選項C\", \"選項D\"],\n"
+                    f"  \"part_of_speech\": \"該單字或片語的常用詞性\",\n"
+                    f"  \"chinese_definition\": \"最精準的繁體中文解釋\",\n"
+                    f"  \"english_definition\": \"清晰易懂的英文詳細雙解\",\n"
+                    f"  \"quiz_question\": \"設計一題最能體現該單字 '{search_word}' 核心用法與生活情境的英文選擇題。請將該單字挖空，以 ______ 代替。\",\n"
+                    f"  \"options\": [\"包含正確單字與其他三個干擾項單字的四個選項A\", \"選項B\", \"選項C\", \"選項D\"],\n"
                     f"  \"correct_answer\": \"正確答案的完整英文單字（必須跟上面 options 中的其中一個字完全一模一樣）\",\n"
                     f"  \"explanation\": \"為什麼選這個答案的繁體中文詳細解析。\"\n"
                     f"}}"
@@ -150,13 +151,13 @@ with tab1:
                     # 嚴格解析 JSON 格式
                     data = json.loads(response.text)
                     
-                    # 渲染極致精美的前端畫片
+                    # 渲染前端畫面
                     st.success(f"🔍 解析成功：{data['word']} ({data['part_of_speech']})")
                     st.subheader(f"💡 中文解釋：{data['chinese_definition']}")
                     st.write(f"📖 英文雙解：{data['english_definition']}")
                     
                     st.markdown("---")
-                    st.markdown("### 📝 AI 多益模擬特訓題：")
+                    st.markdown("### 📝 AI 模擬特訓題：")
                     st.info(data['quiz_question'])
                     
                     # 顯示四個選項
@@ -178,7 +179,7 @@ with tab1:
                             st.session_state.sandbox_vocab = []
                         st.session_state.sandbox_vocab.append(new_row)
                         
-                    st.toast("💾 演算法已自動將此黃金題型保存至您的雲端字卡庫！")
+                    st.toast("💾 演算法已自動將此字卡保存至您的雲端庫！")
                     
                 except Exception as e:
                     st.error(f"❌ AI 引擎產出遭遇干擾：{e}。請確保您的 API Key 有效，並再試一次！")
