@@ -206,7 +206,6 @@ def main():
         st.session_state.user_email = ""
 
     # ---- 狀況 A: 會員尚未登入門檻 ----
-   # ---- 狀況 A: 會員尚未登入門檻 ----
     if not st.session_state.logged_in:
         st.title("🧠 EchoBrain SRS 系統門禁安全中心")
         st.markdown("歡迎使用全維度大腦記憶特訓系統！請登入或註冊您的會員帳號以開始使用。")
@@ -218,10 +217,9 @@ def main():
             login_email = st.text_input("電子郵件 (Email)", key="login_email_input")
             login_pwd = st.text_input("密碼 (Password)", type="password", key="login_pwd_input")
             if st.button("確認登入", key="btn_signin"):
-                clean_login_email = login_email.strip() if login_email else ""
-                if clean_login_email and login_pwd:
+                if login_email and login_pwd:
                     with st.spinner("安全驗證中..."):
-                        res, code = supabase_signin(clean_login_email, login_pwd)
+                        res, code = supabase_signin(login_email, login_pwd)
                     if code == 200 or "access_token" in res:
                         st.session_state.logged_in = True
                         st.session_state.user_id = res["user"]["id"]
@@ -239,10 +237,9 @@ def main():
             reg_email = st.text_input("設定電子郵件 (Email)", key="reg_email_input")
             reg_pwd = st.text_input("設定密碼 (至少 6 位字元)", type="password", key="reg_pwd_input")
             if st.button("註冊帳戶", key="btn_signup"):
-                clean_email = reg_email.strip() if reg_email else ""
-                if clean_email and reg_pwd:
+                if reg_email and reg_pwd:
                     with st.spinner("正在向雲端安全性註冊..."):
-                        res, code = supabase_signup(clean_email, reg_pwd)
+                        res, code = supabase_signup(reg_email, reg_pwd)
                     if code == 200 or "id" in res.get("user", {}):
                         st.success("🎉 註冊成功！部分驗證可能需要查收確認信，您現在可以切換至「會員登入」分頁進入系統。")
                     else:
