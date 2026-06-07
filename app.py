@@ -10,11 +10,11 @@ from supabase import create_client, Client
 # 🌟 核心連線設定（請在此處填入您的正確資訊）
 # ==========================================
 # 1. Supabase 雲端資料庫設定（請至 Supabase 後台 Project Settings -> API 複製）
-SUPABASE_URL = "https://您的專案ID.supabase.co"
-SUPABASE_KEY = "您的eyJhbGciOi..."
+SUPABASE_URL = "https://jcdakjtozepzktrlmpak.supabase.co"
+SUPABASE_KEY = "sb_publishable_KCvBv7Uc12dLg_Od9aKyKg_XpVDLAoe"
 
 # 2. Gemini AI 專用金鑰設定（⚠️ 請務必使用以 AIzaSy 開頭的正確金鑰）
-BACKEND_GEMINI_KEY = "AIzaSy..."
+BACKEND_GEMINI_KEY = "AQ.Ab8RN6Jmwzg4PyFZ8Lwnym_oIKXZaadXaBGHuPMSlNAewTe5Ww"
 
 # 初始化 Supabase 用戶端
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
