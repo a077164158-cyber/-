@@ -12,7 +12,7 @@ from google.genai import types
 # ==========================================
 st.set_page_config(page_title="EchoBrain SRS 核心系統", layout="wide", initial_sidebar_state="expanded")
 
-# 🌟 管理員公用 API 金鑰設定（請在此處填入您的真實金鑰）
+# 🌟 管理員公用 API 金鑰設定（⚠️ 請務必在此處替換為您的真實 Gemini 金鑰，否則會出現 401 錯誤）
 BACKEND_GEMINI_KEY = "AQ.Ab8RN6Lauqruyzzq71MnPmyU5rWY2ruoZWKzN-ETUvjvgyVggA"
 
 # 👑 指定管理員帳密配置
@@ -33,12 +33,12 @@ if "scrambled_order" not in st.session_state:
 if "user_reorder" not in st.session_state:
     st.session_state.user_reorder = []
 
-# SQLite 局部資料庫初始化（整合用戶管理、密碼與點數功能）
+# SQLite 局部資料庫初始化（修正資料表不一致導致的 OperationalError）
 def init_db():
     conn = sqlite3.connect('anki_vocab.db')
     c = conn.cursor()
     
-    # 1. 單字主表
+    # 建立全新的單字主表與用戶管理表結構
     c.execute('''CREATE TABLE IF NOT EXISTS vocab (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id TEXT,
@@ -54,18 +54,6 @@ def init_db():
                     quiz_data TEXT
                 )''')
                 
-    # 🔄 動態檢查 vocab 資料表是否缺少新擴充的欄位，若缺少則自動補上
-    vocab_columns = ["next_review_date", "streak", "error_count", "quiz_data"]
-    for col in vocab_columns:
-        try:
-            if col in ["streak", "error_count"]:
-                c.execute(f"ALTER TABLE vocab ADD COLUMN {col} INTEGER DEFAULT 0")
-            else:
-                c.execute(f"ALTER TABLE vocab ADD COLUMN {col} TEXT")
-        except sqlite3.OperationalError:
-            pass  # 欄位已存在，跳過
-                
-    # 2. 用戶管理表（用於模擬後台與點數管理）
     c.execute('''CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
                     email TEXT UNIQUE,
@@ -73,16 +61,40 @@ def init_db():
                     credits INTEGER DEFAULT 10
                 )''')
                 
-    # 🔄 動態檢查 users 資料表是否缺少新擴充的欄位，若缺少則自動補上
+    # 🔄 【Bug 修正核心】：安全結構校驗驗證，防止舊環境中殘留的損壞欄位導致崩潰
     try:
-        c.execute("ALTER TABLE users ADD COLUMN password TEXT")
+        # 測試 users 表是否支援現有欄位
+        c.execute("SELECT id, email, password, credits FROM users LIMIT 1")
     except sqlite3.OperationalError:
-        pass  # 欄位已存在，跳過
-        
+        # 如果欄位不相符或缺少，直接重建 users 表以維持結構純淨
+        c.execute("DROP TABLE IF EXISTS users")
+        c.execute('''CREATE TABLE users (
+                        id TEXT PRIMARY KEY,
+                        email TEXT UNIQUE,
+                        password TEXT,
+                        credits INTEGER DEFAULT 10
+                    )''')
+                    
     try:
-        c.execute("ALTER TABLE users ADD COLUMN credits INTEGER DEFAULT 10")
+        # 測試 vocab 表是否支援現有欄位
+        c.execute("SELECT id, user_id, word, definition, grammar, mnemonic, confusable, sentences, next_review_date, streak, error_count, quiz_data FROM vocab LIMIT 1")
     except sqlite3.OperationalError:
-        pass  # 欄位已存在，跳過
+        # 如果欄位不相符或缺少，直接重建 vocab 表以維持結構純淨
+        c.execute("DROP TABLE IF EXISTS vocab")
+        c.execute('''CREATE TABLE vocab (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT,
+                        word TEXT,
+                        definition TEXT,
+                        grammar TEXT,
+                        mnemonic TEXT,
+                        confusable TEXT,
+                        sentences TEXT,
+                        next_review_date TEXT,
+                        streak INTEGER,
+                        error_count INTEGER,
+                        quiz_data TEXT
+                    )''')
                 
     # 自動插入管理員帳號至本地資料庫，確保資料一致性
     c.execute("INSERT OR REPLACE INTO users (id, email, password, credits) VALUES (?, ?, ?, ?)",
@@ -170,7 +182,7 @@ def fetch_gemini_learning_package(word, api_key):
     
     prompt = f"""
     你是一位精通台灣繁體中文的頂尖英文權威教授。請為單字 "{word}" 建立一個全方位的語言學習字卡大禮包。
-    你必須嚴格遵循 JSON 格式返回數據，絕對不能包含任何額外的 Markdown 標籤（如 ```json）。
+    你必須嚴格遵循 JSON 格式返回數據，絕對不能包含 any 額外的 Markdown 標籤（如 ```json）。
     
     JSON 格式規範如下：
     {{
@@ -261,7 +273,7 @@ if not st.session_state.logged_in:
                 else:
                     st.error(f"❌ 註冊失敗：{res.get('error', '格式錯誤')}")
             else:
-                st.warning("請填寫所有欄位. ")
+                st.warning("請填寫所有欄位。")
     st.stop()
 
 # ==========================================
@@ -464,7 +476,6 @@ with main_tabs[2]:
             st.warning(f"💡 **文法線索：** {q_data.get('grammar_hint', '請注意詞性變化')}")
             st.info(f"📋 **題目句子：**\n{q_data.get('grammar_q', '_______')}")
             ans_3 = st.text_input(f"請根據文法結構，手動輸入單字「{selected_quiz_word}」的正確衍生詞性形或時態變化型：", key=f"q3_{selected_quiz_word}").strip()
-            # 🛠️ 【Bug 修正核心】：補齊了先前因手滑漏掉的括號閉合
             if st.button("驗證文法結構", key=f"btn3_{selected_quiz_word}"):
                 if ans_3.lower() == q_data.get("grammar_ans", "").strip().lower():
                     st.success(f"🎯 太強了！手動填充完全正確！答案正是：{q_data.get('grammar_ans')}")
