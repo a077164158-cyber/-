@@ -101,14 +101,101 @@ with tab1:
     
     if st.button("讓 AI 產出黃金題型", key="search_btn") and search_word:
         with st.spinner("🚀 Gemini 正在為您打造高階多益題型..."):
-            prompt = f"請針對單字 '{search_word}' 解析。嚴格輸出 JSON 格式且勿包含 
-http://googleusercontent.com/immersive_entry_chip/0
+            # 使用多行安全串接，防止因複製貼上折斷引起的 SyntaxError
+            prompt = (
+                f"請針對單字 '{search_word}' 進行深度解析。"
+                f"你必須嚴格輸出符合以下 JSON 格式的內容，不要包含任何額外的 Markdown 標記或 ```json 字樣：\n"
+                f"{{\n"
+                f"  \"word\": \"{search_word}\",\n"
+                f"  \"part_of_speech\": \"詞性\",\n"
+                f"  \"chinese_definition\": \"繁體中文解釋\",\n"
+                f"  \"english_definition\": \"英文詳細雙解\",\n"
+                f"  \"quiz_question\": \"設計一題高階的多益選擇題，將單字 {search_word} 挖空，上下文語境要豐富、有難度。\",\n"
+                f"  \"options\": [\"選項A\", \"選項B\", \"選項C\", \"選項D\"],\n"
+                f"  \"correct_answer\": \"正確答案的完整英文單字（必須是選項中的其中一個）\",\n"
+                f"  \"explanation\": \"為什麼選這個答案的繁體中文詳細解析。\"\n"
+                f"}}"
+            )
+            try:
+                response = client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                data = json.loads(response.text)
+                
+                st.success(f"🔍 解析成功：{data['word']} ({data['part_of_speech']})")
+                st.subheader(f"💡 中文解釋：{data['chinese_definition']}")
+                st.write(f"📖 英文雙解：{data['english_definition']}")
+                
+                st.info("📝 AI 多益模擬特訓題：")
+                st.write(data['quiz_question'])
+                for opt in data['options']:
+                    st.write(f"- {opt}")
+                    
+                supabase.table("vocab_users").insert({
+                    "username": current_user,
+                    "word": data['word'],
+                    "definition": json.dumps(data, ensure_ascii=False),
+                    "wrong_count": 0,
+                    "next_review": datetime.now().strftime("%Y-%m-%d %H:%M")
+                }).execute()
+                st.toast("💾 已自動保存至您的雲端字卡庫！")
+            except Exception as e:
+                st.error(f"系統發生錯誤，請重新嘗試。錯誤訊息: {e}")
 
-5. 貼上後，滑到最下方點擊綠色的 **`Commit changes...`** 存檔。
+# --- Tab 2: 我的專屬字卡庫 ---
+with tab2:
+    st.header("🗂️ 雲端同步字卡庫")
+    df_vocab = get_user_vocab(current_user)
+    
+    if df_vocab.empty:
+        st.info("字卡庫空空如也，快去第一頁讓 AI 幫你查單字吧！")
+    else:
+        for idx, row in df_vocab.iterrows():
+            try:
+                word_info = json.loads(row['definition'])
+                with st.expander(f"📌 {row['word']} — {word_info['chinese_definition']} (錯誤: {row['wrong_count']} 次)"):
+                    st.write(f"**詞性**: {word_info['part_of_speech']}")
+                    st.write(f"**英文雙解**: {word_info['english_definition']}")
+                    st.markdown("---")
+                    st.write(f"**模擬題**: {word_info['quiz_question']}")
+                    st.write(f"**正確答案**: {word_info['correct_answer']}")
+                    st.write(f"**詳解**: {word_info['explanation']}")
+            except:
+                st.write(f"解析錯誤: {row['word']}")
 
----
-
-### 🏁 最後見證奇蹟的時刻：
-存好檔後，回到你的 Streamlit 網頁。如果程式還沒反應過來，你可以一樣點開右下角的 **`Manage app` -> `...` -> `Reboot app`**。
-
-重啟跑完後，黑色的錯誤畫面就會徹徹底底轉化為最完美的「**會員註冊登入系統**」！你和你的朋友就能開始瘋狂使用了！
+# --- Tab 3: SRS 科學複習測驗 ---
+with tab3:
+    st.header("🎯 SRS 記憶排程特訓")
+    df_vocab = get_user_vocab(current_user)
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    due_vocab = df_vocab[df_vocab['next_review'] <= now_str] if not df_vocab.empty else pd.DataFrame()
+    
+    if due_vocab.empty:
+        st.success("🎉 您目前沒有到期的單字需要複習，太棒了！")
+    else:
+        st.warning(f"目前有 {len(due_vocab)} 個單字已到期：")
+        test_row = due_vocab.iloc[0]
+        try:
+            q_info = json.loads(test_row['definition'])
+            st.write(f"### 題目：{q_info['quiz_question']}")
+            user_ans = st.radio("請選擇正確答案：", q_info['options'], key=f"quiz_{test_row['id']}")
+            
+            if st.button("送出答案確認", key=f"btn_{test_row['id']}"):
+                if user_ans == q_info['correct_answer']:
+                    st.success("🎯 回答完全正確！")
+                    new_interval = datetime.now() + timedelta(days=3)
+                    supabase.table("vocab_users").update({"next_review": new_interval.strftime("%Y-%m-%d %H:%M")}).eq("id", test_row['id']).execute()
+                    st.write("✨ 已排程至 3 天後再次測驗。")
+                else:
+                    st.error(f"❌ 答錯了！正確答案是：{q_info['correct_answer']}")
+                    st.info(f"💡 解析：{q_info['explanation']}")
+                    new_interval = datetime.now() + timedelta(minutes=5)
+                    supabase.table("vocab_users").update({
+                        "wrong_count": test_row['wrong_count'] + 1,
+                        "next_review": new_interval.strftime("%Y-%m-%d %H:%M")
+                    }).eq("id", test_row['id']).execute()
+                    st.write("🔄 5 分鐘後將再次出現測驗。")
+        except:
+            st.error("此單字資料格式有誤。")
